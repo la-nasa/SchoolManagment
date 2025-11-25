@@ -15,6 +15,9 @@ use App\Services\MarkCalculationService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
+use ZipArchive;
+use Illuminate\Support\Str;
 
 class ReportController extends Controller
 {
@@ -26,6 +29,16 @@ class ReportController extends Controller
         $this->calculationService = $calculationService;
     }
 
+    public function bulletinType(Classe $classe)
+    {
+        $this->authorize('generate-reports');
+
+        $terms = Term::orderBy('order')->get();
+        $schoolYears = SchoolYear::orderBy('start_date', 'desc')->get();
+
+        return view('reports.type', compact('classe', 'terms', 'schoolYears'));
+    }
+
     /**
      * Générer un bulletin individuel
      */
@@ -35,28 +48,34 @@ class ReportController extends Controller
 
         $termId = $request->get('term_id', Term::current()->id);
         $schoolYearId = $request->get('school_year_id', SchoolYear::current()->id);
-        $bulletinType = $request->get('type', 'standard'); // 'standard' ou 'apc'
 
         $term = Term::findOrFail($termId);
         $schoolYear = SchoolYear::findOrFail($schoolYearId);
         $schoolSettings = SchoolSetting::getSettings();
 
-        // Vérifier les permissions spécifiques
         $user = Auth::user();
         if ($user->hasRole('teacher') && !$this->isClassTeacher($user, $student->class_id)) {
             abort(403, 'Accès non autorisé à ce bulletin');
         }
 
-        // Charger les données de l'étudiant
-        $student->load([
-            'class.teacher'
-        ]);
+        $student->load(['class.teacher']);
 
-        // Calculer les résultats
         $results = $this->calculationService->calculateStudentResults($student->id, $schoolYearId, $termId);
         $classStats = $this->calculationService->calculateClassStatistics($student->class_id, $schoolYearId, $termId);
 
-        // Générer ou mettre à jour le bulletin
+        // Vérifier que les résultats existent
+        if (!$results || empty($results)) {
+            return back()->with('error', 'Aucun résultat académique disponible pour cet élève.');
+        }
+
+        // Assurer que rank a une valeur par défaut
+        $rank = $results['rank'] ?? 0;
+        if ($rank === null || $rank === '') {
+            $rank = 0;
+        }
+
+        $bulletinType = $request->get('type', 'standard');
+
         $bulletin = Bulletin::updateOrCreate(
             [
                 'student_id' => $student->id,
@@ -65,9 +84,9 @@ class ReportController extends Controller
             ],
             [
                 'class_id' => $student->class_id,
-                'average' => $results['general_average'],
-                'rank' => $results['rank'],
-                'appreciation' => $this->getAppreciation($results['general_average']),
+                'average' => $results['general_average'] ?? 0,
+                'rank' => $rank,
+                'appreciation' => $this->getAppreciation($results['general_average'] ?? 0),
                 'head_teacher_comment' => $request->head_teacher_comment,
                 'principal_comment' => $request->principal_comment,
                 'generated_by' => Auth::id(),
@@ -75,7 +94,6 @@ class ReportController extends Controller
             ]
         );
 
-        // Générer le PDF selon le type
         if ($bulletinType === 'apc') {
             $pdf = $this->generateAPCBulletinPDF($student, $schoolYear, $term, $results, $schoolSettings, $bulletin, $classStats);
         } else {
@@ -83,7 +101,6 @@ class ReportController extends Controller
         }
 
         $filename = "bulletin_{$student->matricule}_{$term->name}_{$schoolYear->year}.pdf";
-
         return $pdf->download($filename);
     }
 
@@ -114,21 +131,87 @@ class ReportController extends Controller
             return back()->with('error', 'Aucun étudiant trouvé dans cette classe.');
         }
 
-        // Générer le premier bulletin pour démonstration
-        $firstStudent = $students->first();
-        $results = $this->calculationService->calculateStudentResults($firstStudent->id, $schoolYearId, $termId);
-        $classStats = $this->calculationService->calculateClassStatistics($classe->id, $schoolYearId, $termId);
+        try {
+            $zipPath = 'temp/bulletins_' . Str::random(10) . '.zip';
+            $zip = new ZipArchive();
 
-        if ($bulletinType === 'apc') {
-            $pdf = $this->generateAPCBulletinPDF($firstStudent, $schoolYear, $term, $results, $schoolSettings, null, $classStats);
-        } else {
-            $pdf = $this->generateStandardBulletinPDF($firstStudent, $schoolYear, $term, $results, $schoolSettings, null, $classStats);
+            if ($zip->open(Storage::path($zipPath), ZipArchive::CREATE) !== true) {
+                return back()->with('error', 'Impossible de créer le ZIP');
+            }
+
+            // Recalculer les moyennes avant de générer les bulletins
+            $this->calculationService->calculateAllSubjectAverages($classe, $term, $schoolYear);
+            $this->calculationService->calculateGeneralAverages($classe, $term, $schoolYear);
+
+            foreach ($students as $student) {
+                $results = $this->calculationService->calculateStudentResults($student->id, $schoolYearId, $termId);
+                $classStats = $this->calculationService->calculateClassStatistics($classe, $term, $schoolYear);
+
+                if (!$results || empty($results)) {
+                    continue;
+                }
+
+                $rank = $results['rank'] ?? 0;
+                if ($rank === null || $rank === '') {
+                    $rank = 0;
+                }
+
+                Bulletin::updateOrCreate(
+                    [
+                        'student_id' => $student->id,
+                        'school_year_id' => $schoolYearId,
+                        'term_id' => $termId
+                    ],
+                    [
+                        'class_id' => $classe->id,
+                        'average' => $results['general_average'] ?? 0,
+                        'rank' => (int)$rank,
+                        'appreciation' => $this->getAppreciation($results['general_average'] ?? 0),
+                        'generated_by' => Auth::id(),
+                        'generated_at' => now()
+                    ]
+                );
+
+                $pdf = $bulletinType === 'apc'
+                    ? $this->generateAPCBulletin($student, $schoolYear, $term, $results, $classStats)
+                    : $this->generateStandardBulletin($student, $schoolYear, $term, $results, $classStats);
+
+                $pdfContent = $pdf->output();
+                $filename = "Bulletin_{$student->matricule}_{$student->user->last_name}_{$term->name}.pdf";
+                $zip->addFromString($filename, $pdfContent);
+            }
+
+            $zip->close();
+
+            $zipFilename = "Bulletins_{$classe->name}_{$bulletinType}_{$term->name}_{$schoolYear->year}.zip";
+
+            return response()->download(Storage::path($zipPath), $zipFilename)->deleteFileAfterSend(true);
+        } catch (\Exception $e) {
+            if (isset($zip)) {
+                $zip->close();
+            }
+            if (isset($zipPath)) {
+                Storage::delete($zipPath);
+            }
+            return back()->with('error', 'Erreur: ' . $e->getMessage());
         }
-
-        $filename = "bulletins_classe_{$classe->full_name}_{$term->name}_{$schoolYear->year}.pdf";
-
-        return $pdf->download($filename);
     }
+
+        // Générer le premier bulletin pour démonstration
+        // $firstStudent = $students->first();
+        // $results = $this->calculationService->calculateStudentResults($firstStudent->id, $schoolYearId, $termId);
+        // $classStats = $this->calculationService->calculateClassStatistics($classe->id, $schoolYearId, $termId);
+
+        // if ($bulletinType === 'apc') {
+        //     $pdf = $this->generateAPCBulletinPDF($firstStudent, $schoolYear, $term, $results, $schoolSettings, null, $classStats);
+        // } else {
+        //     $pdf = $this->generateStandardBulletinPDF($firstStudent, $schoolYear, $term, $results, $schoolSettings, null, $classStats);
+        // }
+
+        // $filename = "bulletins_classe_{$classe->full_name}_{$term->name}_{$schoolYear->year}.pdf";
+
+        // return $pdf->download($filename);
+
 
     /**
      * Générer un procès-verbal
@@ -186,6 +269,57 @@ class ReportController extends Controller
         $filename = "pv_{$evaluation->classe->full_name}_{$evaluation->examType->name}{$sequenceText}.pdf";
 
         return $pdf->download($filename);
+    }
+
+    public function generateClassPV(Classe $classe, Request $request)
+    {
+        $this->authorize('generate-reports');
+
+        $termId = $request->get('term_id', Term::current()->id);
+        $schoolYearId = $request->get('school_year_id', SchoolYear::current()->id);
+
+        $term = Term::findOrFail($termId);
+        $schoolYear = SchoolYear::findOrFail($schoolYearId);
+
+        $evaluations = Evaluation::where('class_id', $classe->id)
+            ->where('term_id', $termId)
+            ->where('school_year_id', $schoolYearId)
+            ->with(['subject', 'marks.student.user', 'examType'])
+            ->get();
+
+        if ($evaluations->isEmpty()) {
+            return back()->with('error', 'Aucune évaluation trouvée');
+        }
+
+        try {
+            $zipPath = 'temp/pv_' . Str::random(10) . '.zip';
+            $zip = new ZipArchive();
+
+            if ($zip->open(Storage::path($zipPath), ZipArchive::CREATE) !== true) {
+                return back()->with('error', 'Impossible de créer le ZIP');
+            }
+
+            foreach ($evaluations as $evaluation) {
+                $pdf = $this->generatePV($evaluation, $schoolYear);
+                $pdfContent = $pdf->output();
+                $filename = "PV_{$evaluation->subject->name}_{$evaluation->evaluation_date->format('d-m-Y')}.pdf";
+                $zip->addFromString($filename, $pdfContent);
+            }
+
+            $zip->close();
+
+            $zipFilename = "PV_{$classe->name}_{$term->name}_{$schoolYear->year}.zip";
+
+            return response()->download(Storage::path($zipPath), $zipFilename)->deleteFileAfterSend(true);
+        } catch (\Exception $e) {
+            if (isset($zip)) {
+                $zip->close();
+            }
+            if (isset($zipPath)) {
+                Storage::delete($zipPath);
+            }
+            return back()->with('error', 'Erreur: ' . $e->getMessage());
+        }
     }
 
  /**
@@ -465,8 +599,8 @@ public function schoolReport(Request $request)
             'settings' => $schoolSettings,
             'bulletin' => $bulletin,
             'classStats' => $classStats,
-            'examTypes' => ExamType::where('category', 'sequence')->get(),
-            'sequences' => Sequence::where('term_id', $term->id)->get()
+            'examTypes' => ExamType::where('id' )->get()
+            // 'sequences' => Sequence::where('term_id', $term->id)->get()
         ];
 
         return PDF::loadView('reports.bulletin-standard', $data)
@@ -489,7 +623,7 @@ public function schoolReport(Request $request)
             'bulletin' => $bulletin,
             'classStats' => $classStats,
             'competences' => $this->getCompetencesBySubject(),
-            'sequences' => Sequence::where('term_id', $term->id)->get()
+            // 'sequences' => Sequence::where('term_id', $term->id)->get()
         ];
 
         return PDF::loadView('reports.bulletin-apc', $data)

@@ -79,7 +79,7 @@ class SubjectController extends Controller
 
         Subject::create($validated);
 
-        return redirect()->route('subjects.index')
+        return redirect()->route('admin.subjects.index')
             ->with('success', 'Matière créée avec succès.');
     }
 
@@ -130,19 +130,19 @@ class SubjectController extends Controller
 
         // Vérifier s'il y a des évaluations associées
         if ($subject->evaluations()->count() > 0) {
-            return redirect()->route('subjects.index')
+            return redirect()->route('admin.subjects.index')
                 ->with('error', 'Impossible de supprimer une matière associée à des évaluations.');
         }
 
         // Vérifier s'il y a des affectations d'enseignants
         if ($subject->teacherAssignments()->count() > 0) {
-            return redirect()->route('subjects.index')
+            return redirect()->route('admin.subjects.index')
                 ->with('error', 'Impossible de supprimer une matière associée à des enseignants.');
         }
 
         $subject->delete();
 
-        return redirect()->route('subjects.index')
+        return redirect()->route('admin.subjects.index')
             ->with('success', 'Matière supprimée avec succès.');
     }
 }

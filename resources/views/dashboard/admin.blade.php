@@ -98,19 +98,20 @@
             <div class="card-header bg-white py-3">
                 <h6 class="m-0 font-weight-bold text-primary">
                     <i class="bi bi-graph-up me-2"></i>Statistiques de l'établissement
+                </h6>
             </div>
             <div class="card-body">
-                @if($schoolStats)
+                @if($schoolStats && $schoolStats['total_students'] > 0)
                 <div class="row text-center">
                     <div class="col-md-4 mb-3">
                         <div class="border rounded p-3">
-                            <div class="h3 text-primary">{{ $schoolStats['school_average'] }}/20</div>
+                            <div class="h3 text-primary">{{ number_format($schoolStats['school_average'], 2) }}/20</div>
                             <small class="text-muted">Moyenne générale</small>
                         </div>
                     </div>
                     <div class="col-md-4 mb-3">
                         <div class="border rounded p-3">
-                            <div class="h3 text-success">{{ $schoolStats['success_rate'] }}%</div>
+                            <div class="h3 text-success">{{ number_format($schoolStats['success_rate'], 2) }}%</div>
                             <small class="text-muted">Taux de réussite</small>
                         </div>
                     </div>
@@ -129,12 +130,16 @@
                             <i class="bi bi-trophy me-1"></i>Top 10
                         </h6>
                         <div class="list-group">
-                            @foreach(array_slice($schoolStats['top_10'], 0, 5) as $index => $average)
+                            @forelse(array_slice($schoolStats['top_10'], 0, 5) as $index => $average)
                             <div class="list-group-item d-flex justify-content-between align-items-center">
                                 <span>#{{ $index + 1 }}</span>
-                                <span class="badge bg-success rounded-pill">{{ $average }}/20</span>
+                                <span class="badge bg-success rounded-pill">{{ number_format($average, 2) }}/20</span>
                             </div>
-                            @endforeach
+                            @empty
+                            <div class="list-group-item text-center text-muted">
+                                Aucune donnée disponible
+                            </div>
+                            @endforelse
                         </div>
                     </div>
                     <div class="col-md-6">
@@ -142,12 +147,16 @@
                             <i class="bi bi-arrow-down me-1"></i>Bottom 10
                         </h6>
                         <div class="list-group">
-                            @foreach(array_slice($schoolStats['bottom_10'], 0, 5) as $index => $average)
+                            @forelse(array_slice($schoolStats['bottom_10'], 0, 5) as $index => $average)
                             <div class="list-group-item d-flex justify-content-between align-items-center">
                                 <span>#{{ $index + 1 }}</span>
-                                <span class="badge bg-danger rounded-pill">{{ $average }}/20</span>
+                                <span class="badge bg-danger rounded-pill">{{ number_format($average, 2) }}/20</span>
                             </div>
-                            @endforeach
+                            @empty
+                            <div class="list-group-item text-center text-muted">
+                                Aucune donnée disponible
+                            </div>
+                            @endforelse
                         </div>
                     </div>
                 </div>
@@ -155,6 +164,7 @@
                 <div class="text-center py-4">
                     <i class="bi bi-graph-up text-muted" style="font-size: 3rem;"></i>
                     <p class="text-muted mt-2">Aucune donnée statistique disponible pour le moment.</p>
+                    <small class="text-muted">Les statistiques apparaîtront après la saisie des notes.</small>
                 </div>
                 @endif
             </div>
@@ -179,10 +189,14 @@
                             <small class="text-warning">{{ 100 - $evaluation->completion_percentage }}%</small>
                         </div>
                         <p class="mb-1 small">
-                            {{ $evaluation->class->name }} - {{ $evaluation->subject->name }}
+                            {{ $evaluation->class->name ?? 'Classe inconnue' }} - {{ $evaluation->subject->name ?? 'Matière inconnue' }}
                         </p>
                         <small class="text-muted">
-                            {{ $evaluation->exam_date->format('d/m/Y') }}
+                            @if($evaluation->exam_date)
+                                {{ $evaluation->exam_date->format('d/m/Y') }}
+                            @else
+                                Date non définie
+                            @endif
                         </small>
                     </div>
                     @endforeach

@@ -86,4 +86,10 @@ class Student extends Model implements AuditableContract
     {
         return $query->where('is_active', true);
     }
+
+    public function getFullName()
+    {
+        return $this->first_name . ' ' . $this->last_name;
+    }
+
 }

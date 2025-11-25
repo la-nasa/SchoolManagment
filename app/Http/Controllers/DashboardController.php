@@ -54,6 +54,9 @@ class DashboardController extends Controller
 
         $schoolStats = $this->calculationService->calculateSchoolStatistics($term, $schoolYear);
 
+        // Assurer que les clés top_10 et bottom_10 existent
+        $schoolStats = $this->ensureSchoolStatsStructure($schoolStats);
+
         // Évaluations avec notes manquantes
         $evaluationsWithMissingMarks = Evaluation::with(['class', 'subject'])
             ->where('school_year_id', $schoolYear->id)
@@ -75,10 +78,14 @@ class DashboardController extends Controller
         ];
 
         $schoolStats = $this->calculationService->calculateSchoolStatistics($term, $schoolYear);
+
+        // Assurer que les clés top_10 et bottom_10 existent
+        $schoolStats = $this->ensureSchoolStatsStructure($schoolStats);
+
         $classStatistics = [];
 
         if ($schoolStats) {
-            $classStatistics = $schoolStats['class_statistics'];
+            $classStatistics = $schoolStats['class_statistics'] ?? [];
         }
 
         // Performances par classe
@@ -166,5 +173,32 @@ class DashboardController extends Controller
             ->get();
 
         return view('dashboard.secretary', compact('stats', 'recentEvaluations', 'schoolYear', 'term'));
+    }
+
+    /**
+     * Assure que la structure des statistiques de l'école contient toutes les clés nécessaires
+     */
+    private function ensureSchoolStatsStructure($schoolStats)
+    {
+        if (!$schoolStats) {
+            return [
+                'school_average' => 0,
+                'success_rate' => 0,
+                'total_students' => 0,
+                'class_statistics' => [],
+                'top_10' => [],
+                'bottom_10' => []
+            ];
+        }
+
+        // Ajouter les clés manquantes avec des valeurs par défaut
+        return array_merge([
+            'top_10' => [],
+            'bottom_10' => [],
+            'class_statistics' => [],
+            'school_average' => 0,
+            'success_rate' => 0,
+            'total_students' => 0
+        ], $schoolStats);
     }
 }

@@ -26,7 +26,7 @@
                     <option value="">Toutes les classes</option>
                     @foreach($classes as $class)
                     <option value="{{ $class->id }}" {{ request('class_id') == $class->id ? 'selected' : '' }}>
-                        {{ $class->full_name }}
+                        {{ $class->full_name ?? $class->name }}
                     </option>
                     @endforeach
                 </select>
@@ -105,7 +105,7 @@
                             @endif
                         </td>
                         <td>
-                            <span class="badge bg-light text-dark">{{ $evaluation->class->full_name }}</span>
+                            <span class="badge bg-light text-dark">{{ $evaluation->class->full_name ?? $evaluation->class->name }}</span>
                         </td>
                         <td>
                             <span class="fw-semibold">{{ $evaluation->subject->name }}</span>
@@ -127,7 +127,7 @@
                         </td>
                         <td>
                             <div class="d-flex align-items-center">
-                                <div class="progress grow me-2" style="height: 6px;">
+                                <div class="progress flex-grow-1 me-2" style="height: 6px;">
                                     <div class="progress-bar {{ $evaluation->completion_percentage == 100 ? 'bg-success' : 'bg-warning' }}"
                                          role="progressbar"
                                          style="width: {{ $evaluation->completion_percentage }}%">

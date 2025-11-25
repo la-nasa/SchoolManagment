@@ -1,166 +1,162 @@
 @extends('layouts.app')
 
 @section('title', $subject->name)
+@section('page-title', $subject->name)
+
+@section('breadcrumbs')
+<li class="breadcrumb-item"><a href="{{ route('admin.subjects.index') }}">Matières</a></li>
+<li class="breadcrumb-item active">{{ $subject->name }}</li>
+@endsection
+
+@section('page-actions')
+<div class="btn-group">
+    @can('edit-subjects')
+    <a href="{{ route('admin.subjects.edit', $subject) }}" class="btn btn-outline-secondary">
+        <i class="bi bi-pencil me-1"></i>Modifier
+    </a>
+    @endcan
+    <a href="{{ route('admin.subjects.index') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i>Retour
+    </a>
+</div>
+@endsection
 
 @section('content')
-<div class="space-y-6">
-    <!-- Header -->
-    <div class="bg-white shadow rounded-lg">
-        <div class="px-4 py-5 sm:px-6">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center">
-                    <div class="shrink-0 h-16 w-16 bg-purple-500 rounded-full flex items-center justify-center">
-                        <span class="text-white text-xl font-bold">{{ substr($subject->name, 0, 1) }}</span>
-                    </div>
-                    <div class="ml-4">
-                        <h1 class="text-2xl font-bold text-gray-900">{{ $subject->name }}</h1>
-                        <p class="text-sm text-gray-500">{{ $subject->description }}</p>
-                    </div>
-                </div>
-                <div class="flex space-x-3">
-                    @can('update', $subject)
-                    <a href="{{ route('admin.subjects.edit', $subject) }}" class="btn-secondary">
-                        Modifier
-                    </a>
-                    @endcan
-                    <a href="{{ route('admin.subjects.index') }}" class="btn-secondary">
-                        Retour
-                    </a>
-                </div>
+<div class="row">
+    <!-- Informations principales -->
+    <div class="col-lg-8">
+        <div class="card mb-4">
+            <div class="card-header bg-white">
+                <h6 class="mb-0"><i class="bi bi-info-circle me-2"></i>Informations de la Matière</h6>
             </div>
-        </div>
-    </div>
-
-    <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <!-- Subject Details -->
-        <div class="lg:col-span-2 space-y-6">
-            <!-- Basic Information -->
-            <div class="bg-white shadow rounded-lg">
-                <div class="px-4 py-5 sm:px-6 border-b border-gray-200">
-                    <h3 class="text-lg font-medium leading-6 text-gray-900">Informations de la Matière</h3>
-                </div>
-                <div class="px-4 py-5 sm:p-6">
-                    <dl class="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label text-muted">Code</label>
+                        <div class="fw-bold font-monospace">{{ $subject->code }}</div>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label text-muted">Coefficient</label>
+                        <div class="fw-bold">{{ $subject->coefficient }}</div>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label text-muted">Note Maximale</label>
+                        <div class="fw-bold">{{ $subject->max_mark }}/{{ $subject->max_mark }}</div>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label text-muted">Statut</label>
                         <div>
-                            <dt class="text-sm font-medium text-gray-500">Code</dt>
-                            <dd class="mt-1 text-sm text-gray-900 font-mono">{{ $subject->code }}</dd>
+                            @if($subject->is_active)
+                                <span class="badge bg-success">Active</span>
+                            @else
+                                <span class="badge bg-secondary">Inactive</span>
+                            @endif
                         </div>
-                        <div>
-                            <dt class="text-sm font-medium text-gray-500">Coefficient</dt>
-                            <dd class="mt-1 text-sm text-gray-900">{{ $subject->coefficient }}</dd>
-                        </div>
-                        <div>
-                            <dt class="text-sm font-medium text-gray-500">Note Maximale</dt>
-                            <dd class="mt-1 text-sm text-gray-900">{{ $subject->max_mark }}/{{ $subject->max_mark }}</dd>
-                        </div>
-                        <div>
-                            <dt class="text-sm font-medium text-gray-500">Statut</dt>
-                            <dd class="mt-1">
-                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $subject->is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800' }}">
-                                    {{ $subject->is_active ? 'Active' : 'Inactive' }}
-                                </span>
-                            </dd>
-                        </div>
-                        <div class="sm:col-span-2">
-                            <dt class="text-sm font-medium text-gray-500">Description</dt>
-                            <dd class="mt-1 text-sm text-gray-900">{{ $subject->description ?: 'Aucune description' }}</dd>
-                        </div>
-                    </dl>
-                </div>
-            </div>
-
-            <!-- Teachers -->
-            <div class="bg-white shadow rounded-lg">
-                <div class="px-4 py-5 sm:px-6 border-b border-gray-200">
-                    <h3 class="text-lg font-medium leading-6 text-gray-900">Enseignants Assignés</h3>
-                </div>
-                <div class="px-4 py-5 sm:p-6">
-                    @if(isset($subject->teachers) && $subject->teachers->count() > 0)
-                    <ul role="list" class="divide-y divide-gray-200">
-                        @foreach($subject->teachers as $teacher)
-                        <li class="py-4">
-                            <div class="flex items-center space-x-4">
-                                <div class="shrink-0">
-                                    <div class="h-10 w-10 bg-blue-500 rounded-full flex items-center justify-center">
-                                        <span class="text-white font-medium">{{ substr($teacher->user->name, 0, 1) }}</span>
-                                    </div>
-                                </div>
-                                <div class="flex-1 min-w-0">
-                                    <p class="text-sm font-medium text-gray-900 truncate">{{ $teacher->user->name }}</p>
-                                    <p class="text-sm text-gray-500 truncate">{{ $teacher->matricule }}</p>
-                                </div>
-                                <div>
-                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                        {{ $teacher->classes_count }} classe(s)
-                                    </span>
-                                </div>
-                            </div>
-                        </li>
-                        @endforeach
-                    </ul>
-                    @else
-                    <p class="text-sm text-gray-500 text-center py-4">Aucun enseignant assigné à cette matière</p>
+                    </div>
+                    @if($subject->description)
+                    <div class="col-12">
+                        <label class="form-label text-muted">Description</label>
+                        <div class="fw-bold">{{ $subject->description }}</div>
+                    </div>
                     @endif
                 </div>
             </div>
         </div>
 
-        <!-- Sidebar -->
-        <div class="space-y-6">
-            <!-- Statistics -->
-            <div class="bg-white shadow rounded-lg">
-                <div class="px-4 py-5 sm:px-6 border-b border-gray-200">
-                    <h3 class="text-lg font-medium leading-6 text-gray-900">Statistiques</h3>
-                </div>
-                <div class="px-4 py-5 sm:p-6">
-                    <dl class="space-y-4">
-                        <div>
-                            <dt class="text-sm font-medium text-gray-500">Enseignants</dt>
-                            <dd class="text-2xl font-semibold text-gray-900">{{ $subject->teachers_count }}</dd>
-                        </div>
-                        <div>
-                            <dt class="text-sm font-medium text-gray-500">Classes</dt>
-                            <dd class="text-2xl font-semibold text-gray-900">{{ $subject->classes_count }}</dd>
-                        </div>
-                        <div>
-                            <dt class="text-sm font-medium text-gray-500">Évaluations</dt>
-                            <dd class="text-2xl font-semibold text-gray-900">{{ $subject->evaluations_count }}</dd>
-                        </div>
-                    </dl>
-                </div>
+        <!-- Enseignants assignés -->
+        <div class="card">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">
+                    <i class="bi bi-person-badge me-2"></i>Enseignants Assignés
+                    <span class="badge bg-primary ms-2">{{ $subject->teachers_count ?? 0 }}</span>
+                </h6>
             </div>
+            <div class="card-body">
+                @if($subject->teachers && $subject->teachers->count() > 0)
+                <div class="list-group list-group-flush">
+                    @foreach($subject->teachers as $teacher)
+                    <div class="list-group-item px-0">
+                        <div class="d-flex align-items-center">
+                            <div class="bg-info rounded-circle d-flex align-items-center justify-content-center me-2" style="width: 40px; height: 40px;">
+                                <span class="text-white fw-bold">{{ substr($teacher->user->name ?? 'T', 0, 1) }}</span>
+                            </div>
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold">{{ $teacher->user->name ?? 'N/A' }}</div>
+                                <small class="text-muted">{{ $teacher->matricule ?? 'N/A' }}</small>
+                            </div>
+                            <div class="text-end">
+                                <span class="badge bg-light text-dark">{{ $teacher->classes_count ?? 0 }} classe(s)</span>
+                            </div>
+                        </div>
+                    </div>
+                    @endforeach
+                </div>
+                @else
+                <div class="text-center py-4">
+                    <i class="bi bi-person-badge display-1 text-muted"></i>
+                    <h4 class="text-muted mt-3">Aucun enseignant assigné</h4>
+                    <p class="text-muted">Aucun enseignant n'est actuellement assigné à cette matière.</p>
+                </div>
+                @endif
+            </div>
+        </div>
+    </div>
 
-            <!-- Recent Evaluations -->
-<div class="bg-white shadow rounded-lg">
-    <div class="px-4 py-5 sm:px-6 border-b border-gray-200">
-        <h3 class="text-lg font-medium leading-6 text-gray-900">Évaluations Récentes</h3>
-    </div>
-    <div class="px-4 py-5 sm:p-6">
-        @if($subject->evaluations && $subject->evaluations->count() > 0)
-        <div class="space-y-3">
-            @foreach($subject->evaluations->take(3) as $evaluation)
-            <div class="flex items-center justify-between p-3 bg-gray-50 rounded">
-                <div>
-                    <p class="text-sm font-medium text-gray-900">{{ $evaluation->title }}</p>
-                    <p class="text-sm text-gray-500">{{ $evaluation->class->name }}</p>
-                </div>
-                <span class="text-sm text-gray-500">{{ $evaluation->date->format('d/m/Y') }}</span>
+    <!-- Sidebar -->
+    <div class="col-lg-4">
+        <!-- Statistiques -->
+        <div class="card mb-4">
+            <div class="card-header bg-white">
+                <h6 class="mb-0"><i class="bi bi-graph-up me-2"></i>Statistiques</h6>
             </div>
-            @endforeach
-        </div>
-        @else
-        <div class="text-center py-4">
-            <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"/>
-            </svg>
-            <p class="mt-2 text-sm text-gray-500">Aucune évaluation récente</p>
-        </div>
-        @endif
-    </div>
-</div>
-                        </ul>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-6 mb-3">
+                        <div class="h4 text-primary mb-1">{{ $subject->teachers_count ?? 0 }}</div>
+                        <small class="text-muted">Enseignants</small>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <div class="h4 text-success mb-1">{{ $subject->classes_count ?? 0 }}</div>
+                        <small class="text-muted">Classes</small>
+                    </div>
+                    <div class="col-6">
+                        <div class="h4 text-info mb-1">{{ $subject->evaluations_count ?? 0 }}</div>
+                        <small class="text-muted">Évaluations</small>
+                    </div>
+                    <div class="col-6">
+                        <div class="h4 text-warning mb-1">{{ $subject->coefficient }}</div>
+                        <small class="text-muted">Coefficient</small>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- Évaluations récentes -->
+        <div class="card">
+            <div class="card-header bg-white">
+                <h6 class="mb-0"><i class="bi bi-clock me-2"></i>Évaluations Récentes</h6>
+            </div>
+            <div class="card-body">
+                @if($subject->evaluations && $subject->evaluations->count() > 0)
+                <div class="list-group list-group-flush">
+                    @foreach($subject->evaluations->take(3) as $evaluation)
+                    <div class="list-group-item px-0">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <div class="fw-semibold">{{ $evaluation->title }}</div>
+                                <small class="text-muted">{{ $evaluation->class->name ?? 'N/A' }}</small>
+                            </div>
+                            <small class="text-muted">{{ $evaluation->exam_date->format('d/m/Y') ?? 'N/A' }}</small>
+                        </div>
+                    </div>
+                    @endforeach
+                </div>
+                @else
+                <div class="text-center py-3">
+                    <i class="bi bi-clipboard-check text-muted" style="font-size: 2rem;"></i>
+                    <p class="text-muted mt-2">Aucune évaluation récente</p>
+                </div>
+                @endif
             </div>
         </div>
     </div>

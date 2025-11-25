@@ -1,221 +1,232 @@
 @extends('layouts.app')
 
 @section('title', 'Gestion des Notes')
+@section('page-title', 'Gestion des Notes')
+
+@section('breadcrumbs')
+<li class="breadcrumb-item active">Notes</li>
+@endsection
+
+@section('page-actions')
+@can('create-marks')
+<a href="{{ route('admin.evaluations.index') }}" class="btn btn-primary">
+    <i class="bi bi-plus-circle me-1"></i>Saisir des notes
+</a>
+@endcan
+@endsection
 
 @section('content')
-<div class="space-y-6">
-    <div class="flex justify-between items-center">
-        <h1 class="text-2xl font-bold text-gray-900">Gestion des Notes</h1>
-        @can('create', App\Models\Mark::class)
-        <a href="{{ route('marks.create') }}" class="btn-primary">
-            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
-            </svg>
-            Saisir des Notes
-        </a>
-        @endcan
-    </div>
-
-    <!-- Filters -->
-    <div class="bg-white shadow rounded-lg p-6">
-        <form method="GET" action="{{ route('marks.index') }}" class="grid grid-cols-1 gap-4 sm:grid-cols-4">
-            <div>
-                <label for="class_id" class="block text-sm font-medium text-gray-700">Classe</label>
-                <select name="class_id" id="class_id" class="mt-1 form-select">
+<!-- Filtres et recherche -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form action="{{ route('admin.marks.index') }}" method="GET" class="row g-3">
+            <div class="col-md-3">
+                <label for="class_id" class="form-label">Classe</label>
+                <select name="class_id" id="class_id" class="form-select">
                     <option value="">Toutes les classes</option>
                     @foreach($classes as $class)
                         <option value="{{ $class->id }}" {{ request('class_id') == $class->id ? 'selected' : '' }}>{{ $class->name }}</option>
                     @endforeach
                 </select>
             </div>
-            <div>
-                <label for="subject_id" class="block text-sm font-medium text-gray-700">Matière</label>
-                <select name="subject_id" id="subject_id" class="mt-1 form-select">
+            <div class="col-md-3">
+                <label for="subject_id" class="form-label">Matière</label>
+                <select name="subject_id" id="subject_id" class="form-select">
                     <option value="">Toutes les matières</option>
                     @foreach($subjects as $subject)
                         <option value="{{ $subject->id }}" {{ request('subject_id') == $subject->id ? 'selected' : '' }}>{{ $subject->name }}</option>
                     @endforeach
                 </select>
             </div>
-            <div>
-                <label for="trimester" class="block text-sm font-medium text-gray-700">Trimestre</label>
-                <select name="trimester" id="trimester" class="mt-1 form-select">
+            <div class="col-md-3">
+                <label for="trimester" class="form-label">Trimestre</label>
+                <select name="trimester" id="trimester" class="form-select">
                     <option value="">Tous</option>
                     <option value="1" {{ request('trimester') == 1 ? 'selected' : '' }}>1er Trimestre</option>
                     <option value="2" {{ request('trimester') == 2 ? 'selected' : '' }}>2ème Trimestre</option>
                     <option value="3" {{ request('trimester') == 3 ? 'selected' : '' }}>3ème Trimestre</option>
                 </select>
             </div>
-            <div class="flex items-end">
-                <button type="submit" class="btn-primary w-full">
-                    Filtrer
-                </button>
+            <div class="col-md-3">
+                <label class="form-label">Actions</label>
+                <div>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-funnel me-1"></i>Filtrer
+                    </button>
+                    <a href="{{ route('admin.marks.index') }}" class="btn btn-outline-secondary">
+                        <i class="bi bi-arrow-clockwise me-1"></i>Réinitialiser
+                    </a>
+                </div>
             </div>
         </form>
     </div>
+</div>
 
-    <!-- Statistics -->
-    <div class="grid grid-cols-1 gap-6 sm:grid-cols-4">
-        <div class="bg-white overflow-hidden shadow rounded-lg">
-            <div class="p-5">
-                <div class="flex items-center">
-                    <div class="flex-shrink-0">
-                        <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                        </svg>
+<!-- Statistiques -->
+<div class="row mb-4">
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-primary shadow h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
+                            Notes Saisies
+                        </div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800">{{ $stats['total_marks'] ?? 0 }}</div>
                     </div>
-                    <div class="ml-5 w-0 flex-1">
-                        <dl>
-                            <dt class="text-sm font-medium text-gray-500 truncate">Notes Saisies</dt>
-                            <dd class="text-lg font-medium text-gray-900">{{ $stats['total_marks'] }}</dd>
-                        </dl>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="bg-white overflow-hidden shadow rounded-lg">
-            <div class="p-5">
-                <div class="flex items-center">
-                    <div class="flex-shrink-0">
-                        <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                        </svg>
-                    </div>
-                    <div class="ml-5 w-0 flex-1">
-                        <dl>
-                            <dt class="text-sm font-medium text-gray-500 truncate">Moyenne Générale</dt>
-                            <dd class="text-lg font-medium text-gray-900">{{ number_format($stats['average_mark'], 2) }}/20</dd>
-                        </dl>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="bg-white overflow-hidden shadow rounded-lg">
-            <div class="p-5">
-                <div class="flex items-center">
-                    <div class="flex-shrink-0">
-                        <svg class="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-                        </svg>
-                    </div>
-                    <div class="ml-5 w-0 flex-1">
-                        <dl>
-                            <dt class="text-sm font-medium text-gray-500 truncate">Meilleure Note</dt>
-                            <dd class="text-lg font-medium text-gray-900">{{ number_format($stats['max_mark'], 2) }}/20</dd>
-                        </dl>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="bg-white overflow-hidden shadow rounded-lg">
-            <div class="p-5">
-                <div class="flex items-center">
-                    <div class="flex-shrink-0">
-                        <svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"/>
-                        </svg>
-                    </div>
-                    <div class="ml-5 w-0 flex-1">
-                        <dl>
-                            <dt class="text-sm font-medium text-gray-500 truncate">Plus Basse Note</dt>
-                            <dd class="text-lg font-medium text-gray-900">{{ number_format($stats['min_mark'], 2) }}/20</dd>
-                        </dl>
+                    <div class="col-auto">
+                        <i class="bi bi-journal-text fa-2x text-gray-300"></i>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Marks Table -->
-    <div class="bg-white shadow rounded-lg overflow-hidden">
-        <div class="px-4 py-5 sm:px-6 border-b border-gray-200">
-            <h3 class="text-lg font-medium leading-6 text-gray-900">Notes des Élèves</h3>
-            <p class="mt-1 text-sm text-gray-500">Liste de toutes les notes saisies</p>
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-success shadow h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-success text-uppercase mb-1">
+                            Moyenne Générale
+                        </div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800">{{ number_format($stats['average_mark'] ?? 0, 2) }}/20</div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="bi bi-graph-up fa-2x text-gray-300"></i>
+                    </div>
+                </div>
+            </div>
         </div>
-        <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-gray-50">
+    </div>
+
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-info shadow h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-info text-uppercase mb-1">
+                            Meilleure Note
+                        </div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800">{{ number_format($stats['max_mark'] ?? 0, 2) }}/20</div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="bi bi-trophy fa-2x text-gray-300"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-warning shadow h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">
+                            Plus Basse Note
+                        </div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800">{{ number_format($stats['min_mark'] ?? 0, 2) }}/20</div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="bi bi-graph-down fa-2x text-gray-300"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Liste des notes -->
+<div class="card">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <h6 class="mb-0">
+            <i class="bi bi-journal-text me-2"></i>Liste des notes
+            <span class="badge bg-primary ms-2">{{ $marks->total() }}</span>
+        </h6>
+        <div class="text-muted small">
+            Page {{ $marks->currentPage() }} sur {{ $marks->lastPage() }}
+        </div>
+    </div>
+    <div class="card-body p-0">
+        @if($marks->count() > 0)
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
                     <tr>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Élève</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Matière</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Évaluation</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Note</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Appréciation</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                        <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                        <th>Élève</th>
+                        <th>Matière</th>
+                        <th>Évaluation</th>
+                        <th>Note</th>
+                        <th>Appréciation</th>
+                        <th>Date</th>
+                        <th width="100">Actions</th>
                     </tr>
                 </thead>
-                <tbody class="bg-white divide-y divide-gray-200">
+                <tbody>
                     @foreach($marks as $mark)
-                    <tr class="table-row-hover">
-                        <td class="px-6 py-4 whitespace-nowrap">
-                            <div class="flex items-center">
-                                <div class="flex-shrink-0 h-10 w-10 bg-blue-500 rounded-full flex items-center justify-center">
-                                    <span class="text-white font-medium">
+                    <tr>
+                        <td>
+                            <div class="d-flex align-items-center">
+                                <div class="bg-primary rounded-circle d-flex align-items-center justify-content-center me-2" style="width: 32px; height: 32px;">
+                                    <span class="text-white small fw-bold">
                                         {{ substr($mark->student->first_name, 0, 1) }}{{ substr($mark->student->last_name, 0, 1) }}
                                     </span>
                                 </div>
-                                <div class="ml-4">
-                                    <div class="text-sm font-medium text-gray-900">
-                                        {{ $mark->student->first_name }} {{ $mark->student->last_name }}
-                                    </div>
-                                    <div class="text-sm text-gray-500">{{ $mark->student->class->name }}</div>
+                                <div>
+                                    <div class="fw-semibold">{{ $mark->student->first_name }} {{ $mark->student->last_name }}</div>
+                                    <small class="text-muted">{{ $mark->student->class->name ?? 'N/A' }}</small>
                                 </div>
                             </div>
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap">
-                            <div class="text-sm text-gray-900">{{ $mark->evaluation->subject->name }}</div>
-                            <div class="text-sm text-gray-500">Coeff. {{ $mark->evaluation->subject->coefficient }}</div>
+                        <td>
+                            <div>{{ $mark->evaluation->subject->name ?? 'N/A' }}</div>
+                            <small class="text-muted">Coeff. {{ $mark->evaluation->subject->coefficient ?? 'N/A' }}</small>
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap">
-                            <div class="text-sm text-gray-900">{{ $mark->evaluation->type }}</div>
-                            <div class="text-sm text-gray-500">{{ $mark->evaluation->sequence_type }}</div>
+                        <td>
+                            <div>{{ $mark->evaluation->type ?? 'N/A' }}</div>
+                            <small class="text-muted">{{ $mark->evaluation->sequence_type ?? 'N/A' }}</small>
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap">
-                            <div class="text-sm font-medium text-gray-900">
-                                {{ number_format($mark->mark, 2) }}/{{ $mark->evaluation->max_mark }}
-                            </div>
-                            <div class="text-sm text-gray-500">
-                                @php
-                                    $percentage = ($mark->mark / $mark->evaluation->max_mark) * 20;
-                                @endphp
-                                {{ number_format($percentage, 1) }}/20
-                            </div>
+                        <td>
+                            <div class="fw-bold">{{ number_format($mark->marks, 2) }}/{{ $mark->evaluation->max_marks ?? 20 }}</div>
+                            @php
+                                $percentage = ($mark->marks / ($mark->evaluation->max_marks ?? 20)) * 20;
+                            @endphp
+                            <small class="text-muted">{{ number_format($percentage, 1) }}/20</small>
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap">
-                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                                {{ $mark->appreciation == 'Excellent' ? 'bg-green-100 text-green-800' : '' }}
-                                {{ $mark->appreciation == 'Très bien' ? 'bg-blue-100 text-blue-800' : '' }}
-                                {{ $mark->appreciation == 'Bien' ? 'bg-yellow-100 text-yellow-800' : '' }}
-                                {{ $mark->appreciation == 'Assez bien' ? 'bg-orange-100 text-orange-800' : '' }}
-                                {{ $mark->appreciation == 'Passable' ? 'bg-red-100 text-red-800' : '' }}
-                                {{ $mark->appreciation == 'Insuffisant' ? 'bg-red-100 text-red-800' : '' }}">
-                                {{ $mark->appreciation }}
-                            </span>
+                        <td>
+                            @if($mark->appreciation)
+                                <span class="badge
+                                    {{ $mark->appreciation == 'Excellent' ? 'bg-success' : '' }}
+                                    {{ $mark->appreciation == 'Très bien' ? 'bg-primary' : '' }}
+                                    {{ $mark->appreciation == 'Bien' ? 'bg-info' : '' }}
+                                    {{ $mark->appreciation == 'Assez bien' ? 'bg-warning' : '' }}
+                                    {{ $mark->appreciation == 'Passable' ? 'bg-orange' : '' }}
+                                    {{ $mark->appreciation == 'Insuffisant' ? 'bg-danger' : '' }}">
+                                    {{ $mark->appreciation }}
+                                </span>
+                            @else
+                                <span class="text-muted">-</span>
+                            @endif
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {{ $mark->created_at->format('d/m/Y') }}
+                        <td>
+                            <small class="text-muted">{{ $mark->created_at->format('d/m/Y') }}</small>
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                            <div class="flex justify-end space-x-2">
-                                @can('update', $mark)
-                                <a href="{{ route('marks.edit', $mark) }}" class="text-green-600 hover:text-green-900 transition-colors" title="Modifier">
-                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
-                                    </svg>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                @can('edit-marks')
+                                <a href="{{ route('admin.marks.edit', $mark) }}"
+                                   class="btn btn-outline-secondary" title="Modifier">
+                                    <i class="bi bi-pencil"></i>
                                 </a>
                                 @endcan
-                                @can('delete', $mark)
-                                <form action="{{ route('marks.destroy', $mark) }}" method="POST" class="inline">
+                                @can('delete-marks')
+                                <form action="{{ route('admin.marks.destroy', $mark) }}" method="POST"
+                                      class="d-inline" onsubmit="return confirm('Êtes-vous sûr de vouloir supprimer cette note ?')">
                                     @csrf
                                     @method('DELETE')
-                                    <button type="submit" onclick="return confirmAction('Êtes-vous sûr de vouloir supprimer cette note ?')" class="text-red-600 hover:text-red-900 transition-colors" title="Supprimer">
-                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                                        </svg>
+                                    <button type="submit" class="btn btn-outline-danger" title="Supprimer">
+                                        <i class="bi bi-trash"></i>
                                     </button>
                                 </form>
                                 @endcan
@@ -226,9 +237,37 @@
                 </tbody>
             </table>
         </div>
-        <div class="px-4 py-4 sm:px-6 border-t border-gray-200">
+        @else
+        <div class="text-center py-5">
+            <i class="bi bi-journal-text display-1 text-muted"></i>
+            <h4 class="text-muted mt-3">Aucune note trouvée</h4>
+            <p class="text-muted">Aucune note ne correspond à vos critères de recherche.</p>
+            @can('create-marks')
+            <a href="{{ route('admin.evaluations.index') }}" class="btn btn-primary">
+                <i class="bi bi-plus-circle me-1"></i>Saisir des notes
+            </a>
+            @endcan
+        </div>
+        @endif
+    </div>
+
+    @if($marks->hasPages())
+    <div class="card-footer bg-white">
+        <div class="d-flex justify-content-between align-items-center">
+            <div class="text-muted small">
+                Affichage de {{ $marks->firstItem() }} à {{ $marks->lastItem() }} sur {{ $marks->total() }} notes
+            </div>
             {{ $marks->links() }}
         </div>
     </div>
+    @endif
 </div>
 @endsection
+
+@push('scripts')
+<script>
+function confirmAction(message) {
+    return confirm(message || 'Êtes-vous sûr de vouloir effectuer cette action ?');
+}
+</script>
+@endpush
