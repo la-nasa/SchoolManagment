@@ -51,4 +51,9 @@ class Kernel extends HttpKernel
         'teacher.access' => \App\Http\Middleware\CheckTeacherPermissions::class,
         'password.temporary' => \App\Http\Middleware\CheckTemporaryPassword::class,
     ];
+
+    protected function schedule(Schedule $schedule)
+{
+    $schedule->command('clean:temp-files')->hourly();
+}
 }

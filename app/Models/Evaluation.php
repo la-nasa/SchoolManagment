@@ -33,7 +33,12 @@ class Evaluation extends Model implements AuditableContract
     // Relations
     public function class()
     {
-        return $this->belongsTo(Classe::class);
+        return $this->belongsTo(Classe::class, 'class_id');
+    }
+
+     public function getClasseAttribute()
+    {
+        return $this->class;
     }
 
     public function subject()
@@ -56,9 +61,37 @@ class Evaluation extends Model implements AuditableContract
         return $this->belongsTo(SchoolYear::class);
     }
 
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+
     public function marks()
     {
         return $this->hasMany(Mark::class);
+    }
+
+    public function scopeActive($query)
+    {
+        return $query->whereHas('term', function($q) {
+            $q->where('is_archived', false);
+        });
+    }
+
+    public function scopeByTerm($query, $termId)
+    {
+        return $query->where('term_id', $termId);
+    }
+
+    public function scopeByClass($query, $classId)
+    {
+        return $query->where('class_id', $classId);
+    }
+
+    public function scopeBySubject($query, $subjectId)
+    {
+        return $query->where('subject_id', $subjectId);
     }
 
     // Vérifier si l'évaluation est complétée (tous les élèves notés)
@@ -70,6 +103,11 @@ class Evaluation extends Model implements AuditableContract
         return $totalStudents === $markedStudents;
     }
 
+     public function getStudentsAttribute()
+    {
+        return $this->classe ? $this->classe->students : collect();
+    }
+
     // Pourcentage de complétion
     public function getCompletionPercentageAttribute()
     {
@@ -77,6 +115,6 @@ class Evaluation extends Model implements AuditableContract
         if ($totalStudents === 0) return 0;
 
         $markedStudents = $this->marks()->count();
-        return ($markedStudents / $totalStudents) * 100;
+        return round(($markedStudents / $totalStudents) * 100, 2);
     }
 }

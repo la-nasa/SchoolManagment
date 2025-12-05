@@ -183,12 +183,12 @@ class ProfileController extends Controller
         return [
             'classes_count' => $user->teacherAssignments()->where('school_year_id', $currentYear->id)->count(),
             'subjects_count' => $user->teacherAssignments()->where('school_year_id', $currentYear->id)->distinct('subject_id')->count('subject_id'),
-            'evaluations_count' => $user->evaluations()->where('school_year_id', $currentYear->id)->count(),
-            'pending_marks_count' => $user->evaluations()
-                ->where('school_year_id', $currentYear->id)
-                ->where('term_id', $currentTerm->id)
-                ->whereDoesntHave('marks')
-                ->count(),
+            // 'evaluations_count' => $user->evaluations()->where('school_year_id', $currentYear->id)->count(),
+            // 'pending_marks_count' => $user->evaluations()
+            //     ->where('school_year_id', $currentYear->id)
+            //     ->where('term_id', $currentTerm->id)
+            //     ->whereDoesntHave('marks')
+            //     ->count(),
         ];
     }
 

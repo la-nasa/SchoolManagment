@@ -30,15 +30,32 @@ class Student extends Model implements AuditableContract
         'is_active' => 'boolean'
     ];
 
+    protected $appends = ['full_name'];
+
     // Relations
     public function class()
     {
-        return $this->belongsTo(Classe::class);
+        return $this->belongsTo(Classe::class, 'class_id');
+    }
+
+    public function getClasseAttribute()
+{
+    return $this->classe()->first();
+}
+
+    //  public function class()
+    // {
+    //     return $this->classe();
+    // }
+
+     public function hasClass()
+    {
+        return !is_null($this->class_id);
     }
 
     public function schoolYear()
     {
-        return $this->belongsTo(SchoolYear::class);
+        return $this->belongsTo(SchoolYear::class, 'school_year_id');
     }
 
     public function marks()
@@ -48,18 +65,46 @@ class Student extends Model implements AuditableContract
 
     public function averages()
     {
-        return $this->hasMany(Average::class);
+        return $this->hasMany(Average::class, 'student_id');
     }
 
     public function generalAverages()
     {
-        return $this->hasMany(GeneralAverage::class);
+        return $this->hasMany(GeneralAverage::class, 'student_id');
     }
 
     // Nom complet de l'élève
     public function getFullNameAttribute()
     {
-        return $this->first_name . ' ' . $this->last_name;
+        $firstName = $this->first_name ?? '';
+        $lastName = $this->last_name ?? '';
+        return trim($firstName . ' ' . $lastName);
+    }
+
+     public function getFullName()
+    {
+        return $this->full_name;
+    }
+
+    // Méthode pour obtenir le prénom
+    // public function getFirstNameAttribute()
+    // {
+    //     return $this->user ? $this->user->first_name : '';
+    // }
+
+    // // Méthode pour obtenir le nom
+    // public function getLastNameAttribute()
+    // {
+    //     return $this->user ? $this->user->last_name : '';
+    // }
+
+
+    public function getPhotoUrlAttribute()
+    {
+        if ($this->photo && file_exists(storage_path('app/public/' . $this->photo))) {
+            return asset('storage/' . $this->photo);
+        }
+        return '/images/default-avatar.png';
     }
 
     // Générer un matricule automatique
@@ -87,9 +132,53 @@ class Student extends Model implements AuditableContract
         return $query->where('is_active', true);
     }
 
-    public function getFullName()
+    public function scopeWithClass($query)
+{
+    return $query->whereNotNull('class_id')->where('class_id', '>', 0);
+}
+
+    public function canGenerateBulletin()
     {
-        return $this->first_name . ' ' . $this->last_name;
+        return $this->hasClass() && $this->is_active;
     }
+
+    public function getClassName()
+    {
+        if (!$this->hasClass()) {
+            return 'Non assigné';
+        }
+        
+        // Charger la relation si pas déjà chargée
+        if (!$this->relationLoaded('classe')) {
+            $this->load('classe');
+        }
+        
+        return $this->classe ? ($this->classe->full_name ?? $this->classe->name ?? 'Classe inconnue') : 'Classe inconnue';
+    }
+
+    // public function getFullName()
+    // {
+    //     return $this->first_name . ' ' . $this->last_name;
+    // }
+
+    //  public function user()
+    // {
+    //     return $this->belongsTo(User::class);
+    // }
+
+
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    // Relation classe (alias de class pour compatibilité)
+    public function classe()
+    {
+        return $this->belongsTo(Classe::class, 'class_id');
+    }
+
+    
+     
 
 }

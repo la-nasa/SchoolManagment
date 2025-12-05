@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Classe;
 use App\Models\SchoolYear;
 use App\Models\TeacherAssignment;
+use App\Models\Term;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Http\Request;
 use App\Services\MarkCalculationService;
 
@@ -18,11 +20,12 @@ class ClasseController extends Controller
         $this->calculationService = $calculationService;
     }
 
-    public function index(Request $request)
+   public function index(Request $request)
     {
         $this->authorize('view-classes');
 
-        $query = Classe::with(['teacher', 'schoolYear', 'students']);
+        $query = Classe::with(['teacher', 'schoolYear'])
+            ->withCount('students');
 
         if ($request->filled('level')) {
             $query->where('level', $request->level);
@@ -35,9 +38,14 @@ class ClasseController extends Controller
 
         $classes = $query->orderBy('level')->orderBy('name')->paginate(20);
         $currentSchoolYear = SchoolYear::current();
+        $terms = Term::all();
+        $currentTerm = Term::current()->first();
+        $schoolYears = SchoolYear::all();
 
-        return view('classes.index', compact('classes', 'currentSchoolYear'));
+
+        return view('classes.index', compact('classes', 'currentSchoolYear', 'terms', 'currentTerm', 'schoolYears'));
     }
+
 
     public function create()
     {
@@ -77,24 +85,85 @@ class ClasseController extends Controller
     }
 
     public function show(Classe $classe, Request $request)
-    {
-        $this->authorize('view-classes');
+{
+    $this->authorize('view-classes');
 
-        $currentTerm = \App\Models\Term::current();
+    try {
+        // Charger les données
+        $classe->load([
+            'teacher',
+            'schoolYear',
+            'students' => function($q) {
+                $q->orderBy('last_name')->orderBy('first_name');
+            },
+            'teacherAssignments.teacher',
+            'teacherAssignments.subject'
+        ]);
+
+        $currentTerm = Term::current()->first();
         $currentSchoolYear = SchoolYear::current();
+        $terms = Term::all();
+        $schoolYears = SchoolYear::all();
 
-        $classe = $classe->load(['teacher', 'students', 'teacherAssignments.teacher', 'teacherAssignments.subject']);
+        Log::info("Affichage classe {$classe->id}", [
+            'nom' => $classe->name,
+            'etudiants' => $classe->students->count(),
+            'term_courant' => $currentTerm ? $currentTerm->id : 'null',
+            'annee_courante' => $currentSchoolYear ? $currentSchoolYear->id : 'null'
+        ]);
 
-        // Statistiques de la classe
-         if ($classe) {
-        $classStats = $this->calculationService->calculateClassStatistics($classe, $currentTerm, $currentSchoolYear);
-    } else {
-        $classStats = [];
+        // Calculer les statistiques avec gestion d'erreur
+        $classStats = null;
+        try {
+            if ($currentTerm && $currentSchoolYear) {
+                $classStats = $this->calculationService->calculateClassStatistics(
+                    $classe->id,
+                    $currentTerm->id,
+                    $currentSchoolYear->id
+                );
+
+                Log::info("Statistiques calculées", $classStats);
+            } else {
+                Log::warning("Term ou SchoolYear courant non trouvé");
+                $classStats = $this->getEmptyClassStats($classe);
+            }
+        } catch (\Exception $e) {
+            Log::error("Erreur calcul statistiques: " . $e->getMessage());
+            $classStats = $this->getEmptyClassStats($classe);
+        }
+
+        return view('classes.show', compact(
+            'classe',
+            'classStats',
+            'currentTerm',
+            'currentSchoolYear',
+            'terms',
+            'schoolYears'
+        ));
+
+    } catch (\Exception $e) {
+        Log::error("Erreur affichage classe: " . $e->getMessage());
+        return back()->with('error', 'Erreur: ' . $e->getMessage());
     }
-        // $classStats = $this->calculationService->calculateClassStatistics($classe->id, $currentTerm->id, $currentSchoolYear->id);
+}
 
-        return view('classes.show', compact('classe', 'classStats', 'currentTerm', 'currentSchoolYear'));
-    }
+private function getEmptyClassStats($classe)
+{
+    return [
+        'class_average' => 0,
+        'max_average' => 0,
+        'min_average' => 0,
+        'success_rate' => 0,
+        'total_students' => $classe->students->count(),
+        'top_average' => 0,
+        'bottom_average' => 0,
+        'class_id' => $classe->id,
+        'class_name' => $classe->name,
+        'term_name' => 'Non disponible',
+        'school_year' => 'Non disponible'
+    ];
+}
+
 
     public function edit(Classe $class)
     {

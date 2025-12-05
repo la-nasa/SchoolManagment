@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>PV - {{ $evaluation->classe->full_name }} - {{ $evaluation->examType->name }}</title>
+    <title>PV - {{ $evaluation->class->name ?? 'Classe' }} - {{ $evaluation->subject->name ?? 'Évaluation' }}</title>
     <style>
         @page {
             margin: 10px;
@@ -69,6 +69,7 @@
         .text-right { text-align: right; }
         .bold { font-weight: bold; }
         .absent { color: #ff0000; font-style: italic; }
+        .na { color: #666; font-style: italic; }
     </style>
 </head>
 <body>
@@ -79,27 +80,24 @@
         </div>
         <div class="pv-title">
             PROCÈS-VERBAL DE DEVOIR SURVEILLÉ<br>
-            {{ strtoupper($evaluation->examType->name) }} 
-            @if($sequence)
-            - {{ strtoupper($sequence->name) }}
-            @endif
-            - ANNÉE {{ $schoolYear->year }}
+            {{ strtoupper($evaluation->examType->name ?? 'ÉVALUATION') }} 
+            - ANNÉE {{ $schoolYear->year ?? now()->year }}
         </div>
     </div>
 
     <table class="info-table">
         <tr>
-            <td width="20%"><strong>Classe :</strong> {{ $evaluation->classe->full_name }}</td>
-            <td width="20%"><strong>Effectif :</strong> {{ $evaluation->classe->students->count() }}</td>
-            <td width="20%"><strong>Matière :</strong> {{ $evaluation->subject->name }}</td>
-            <td width="20%"><strong>Date :</strong> {{ $evaluation->evaluation_date->format('d/m/Y') }}</td>
-            <td width="20%"><strong>Surveillant :</strong> {{ $generatedBy->getFullName() }}</td>
+            <td width="20%"><strong>Classe :</strong> {{ $evaluation->class->name ?? 'Non spécifiée' }}</td>
+            <td width="20%"><strong>Effectif :</strong> {{ $evaluation->class->students()->count() ?? 0 }}</td>
+            <td width="20%"><strong>Matière :</strong> {{ $evaluation->subject->name ?? 'Non spécifiée' }}</td>
+            <td width="20%"><strong>Date :</strong> {{ $evaluation->exam_date->format('d/m/Y') ?? now()->format('d/m/Y') }}</td>
+            <td width="20%"><strong>Surveillant :</strong> {{ $generatedBy->name ?? 'Non spécifié' }}</td>
         </tr>
         <tr>
-            <td colspan="2"><strong>Type d'évaluation :</strong> {{ $evaluation->examType->name }}</td>
-            <td><strong>Note maximale :</strong> {{ $evaluation->max_mark }}</td>
-            <td><strong>Durée :</strong> {{ $evaluation->duration }} minutes</td>
-            <td><strong>Coefficient :</strong> {{ $evaluation->coefficient }}</td>
+            <td colspan="2"><strong>Type d'évaluation :</strong> {{ $evaluation->examType->name ?? 'Non spécifié' }}</td>
+            <td><strong>Note maximale :</strong> {{ $evaluation->max_marks ?? 20 }}</td>
+            <td><strong>Durée :</strong> {{ $evaluation->duration ?? 0 }} minutes</td>
+            <td><strong>Coefficient :</strong> {{ $evaluation->coefficient ?? 1 }}</td>
         </tr>
     </table>
 
@@ -116,55 +114,74 @@
             </tr>
         </thead>
         <tbody>
-            @foreach($studentsWithMarks as $index => $studentData)
+            @forelse($studentsWithMarks as $index => $studentData)
+            @php
+                $student = $studentData['student'] ?? null;
+            @endphp
             <tr class="student-row">
                 <td>{{ $index + 1 }}</td>
-                <td>{{ $studentData['student']->matricule }}</td>
-                <td class="text-left">{{ $studentData['student']->getFullName() }}</td>
-                <td class="bold">
-                    @if($studentData['is_absent'])
-                        <span class="absent">Absent</span>
+                <td>{{ $student->matricule ?? 'N/A' }}</td>
+                <td class="text-left">
+                    @if($student)
+                        {{ $student->first_name ?? '' }} {{ $student->last_name ?? '' }}
                     @else
-                        {{ $studentData['marks'] }}/{{ $evaluation->max_mark }}
+                        <span class="na">Étudiant non trouvé</span>
                     @endif
                 </td>
-                <td>{{ $studentData['appreciation'] }}</td>
+                <td class="bold">
+                    @if($studentData['is_absent'] ?? false)
+                        <span class="absent">Absent</span>
+                    @else
+                        {{ $studentData['marks'] ?? 0 }}/{{ $evaluation->max_marks ?? 20 }}
+                    @endif
+                </td>
+                <td>{{ $studentData['appreciation'] ?? '-' }}</td>
                 <td>
-                    @if($studentData['is_absent'])
+                    @if($studentData['is_absent'] ?? false)
                     ✓
                     @else
                     -
                     @endif
                 </td>
                 <td class="text-left">
-                    {{ $studentData['mark']->comments ?? '' }}
+                    {{ $studentData['mark']->comment ?? '' }}
                 </td>
             </tr>
-            @endforeach
+            @empty
+            <tr>
+                <td colspan="7" class="text-center na">
+                    Aucun étudiant avec des notes pour cette évaluation
+                </td>
+            </tr>
+            @endforelse
             
             <!-- Statistiques -->
+            @if(count($studentsWithMarks) > 0)
+            @php
+                $validMarks = collect($studentsWithMarks)->filter(function($student) {
+                    return !($student['is_absent'] ?? false);
+                });
+                $average = $validMarks->count() > 0 ? 
+                    $validMarks->avg(function($student) { return $student['marks'] ?? 0; }) : 0;
+                $maxMark = $validMarks->max('marks') ?? 0;
+                $minMark = $validMarks->min('marks') ?? 0;
+            @endphp
             <tr class="bold" style="background-color: #f0f0f0;">
                 <td colspan="3" class="text-right">STATISTIQUES :</td>
                 <td>
-                    @php
-                        $validMarks = $studentsWithMarks->filter(function($student) {
-                            return !$student['is_absent'];
-                        });
-                        $average = $validMarks->count() > 0 ? 
-                            $validMarks->avg(function($student) { return $student['marks']; }) : 0;
-                    @endphp
                     Moy: {{ number_format($average, 2) }}
                 </td>
                 <td>
-                    Max: {{ $validMarks->max('marks') ?? 0 }}
+                    Max: {{ $maxMark }}
                 </td>
                 <td>
-                    Min: {{ $validMarks->min('marks') ?? 0 }}
+                    Min: {{ $minMark }}
                 </td>
                 <td>
-                    Présents: {{ $validMarks->count() }}/{{ $studentsWithMarks->count() }}
+                    Présents: {{ $validMarks->count() }}/{{ count($studentsWithMarks) }}
                 </td>
             </tr>
+            @endif
         </tbody>
     </table>
 
@@ -174,17 +191,17 @@
                 <td width="25%" class="text-center">
                     Le Surveillant<br><br>
                     _________________________<br>
-                    {{ $generatedBy->getFullName() }}
+                    {{ $generatedBy->name ?? 'Non spécifié' }}
                 </td>
                 <td width="25%" class="text-center">
                     Le Professeur<br><br>
                     _________________________<br>
-                    {{ $evaluation->subject->name }}
+                    {{ $evaluation->subject->name ?? 'Matière' }}
                 </td>
                 <td width="25%" class="text-center">
                     Le Professeur Principal<br><br>
                     _________________________<br>
-                    {{ $evaluation->classe->teacher ? $evaluation->classe->teacher->getFullName() : 'Non assigné' }}
+                    {{ $evaluation->class->teacher->name ?? 'Non assigné' }}
                 </td>
                 <td width="25%" class="text-center">
                     Le Chef d'Établissement<br><br>

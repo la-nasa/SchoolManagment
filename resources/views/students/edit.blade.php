@@ -128,7 +128,7 @@
                     <img src="{{ $student->photo_url }}" alt="{{ $student->full_name }}" class="rounded-circle" width="80" height="80">
                     <h6 class="mt-2">{{ $student->full_name }}</h6>
                     <p class="text-muted mb-1">{{ $student->matricule }}</p>
-                    <span class="badge bg-light text-dark">{{ $student->class->full_name }}</span>
+                    <span class="badge bg-light text-dark">{{ $student->class->full_name ?? 'Classe non assignée'  }}</span>
                 </div>
 
                 <table class="table table-sm table-borderless">

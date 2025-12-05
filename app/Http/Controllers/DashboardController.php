@@ -77,6 +77,8 @@ class DashboardController extends Controller
             'total_teachers' => \App\Models\User::role(['enseignant', 'enseignant titulaire'])->active()->count(),
         ];
 
+        $currentTerm = \App\Models\Term::current();
+
         $schoolStats = $this->calculationService->calculateSchoolStatistics($term, $schoolYear);
 
         // Assurer que les clés top_10 et bottom_10 existent
@@ -94,7 +96,7 @@ class DashboardController extends Controller
                   ->where('school_year_id', $schoolYear->id);
         }])->get();
 
-        return view('dashboard.director', compact('stats', 'schoolStats', 'classStatistics', 'classes', 'schoolYear', 'term'));
+        return view('dashboard.director', compact('stats', 'schoolStats', 'classStatistics', 'classes', 'schoolYear', 'term', 'currentTerm'));
     }
 
     private function titularDashboard($user, $schoolYear, $term)

@@ -96,6 +96,12 @@ class User extends Authenticatable implements AuditableContract
         return $this->hasRole('administrateur');
     }
 
+    public function isAdmin()
+    {
+        return $this->hasRole('administrateur');
+    }
+
+
     public function isDirector()
     {
         return $this->hasRole('directeur');
@@ -224,6 +230,11 @@ class User extends Authenticatable implements AuditableContract
     {
         return $this->isAdministrator() ||
                ($this->isDirector() && $this->can('view-audit-trail'));
+    }
+
+    public function activityLogs()
+    {
+        return $this->hasMany(ActivityLog::class);
     }
 
 

@@ -96,7 +96,7 @@
                             </div>
                         </td>
                         <td>
-                            <span class="badge bg-light text-dark">{{ $student->class->full_name }}</span>
+                            <span class="badge bg-light text-dark">{{ $student->class->full_name ?? 'Classe non assignée'  }}</span>
                         </td>
                         <td>
                             {{ $student->birth_date->format('d/m/Y') }}

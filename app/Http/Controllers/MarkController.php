@@ -6,8 +6,11 @@ use Illuminate\Support\Facades\DB;
 use App\Models\Mark;
 use App\Models\Evaluation;
 use App\Models\Student;
+use App\Models\ActivityLog;
 use Illuminate\Http\Request;
 use App\Services\MarkCalculationService;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Auth;
 
 class MarkController extends Controller
 {
@@ -19,115 +22,316 @@ class MarkController extends Controller
         $this->calculationService = $calculationService;
     }
 
-    public function create(Request $request, $evaluationId = null)
+    /**
+     * Afficher le formulaire de création des notes
+     */
+    public function create(Evaluation $evaluation)
     {
-        $this->authorize('create-marks');
-
         try {
-            // Récupérer l'évaluation depuis le paramètre de route ou depuis la requête
-            $evaluationId = $evaluationId ?? $request->route('evaluation') ?? $request->input('evaluation_id');
+            $this->authorize('create-marks');
 
-            // Si c'est un objet Evaluation, utiliser directement
-            if ($evaluationId instanceof \App\Models\Evaluation) {
-                $evaluation = $evaluationId;
-            }
-            // Si c'est un ID numérique, chercher l'évaluation
-            elseif (is_numeric($evaluationId)) {
-                $evaluation = Evaluation::with([
-                    'class.students' => function($query) {
-                        $query->orderBy('first_name')->orderBy('last_name');
-                    },
-                    'subject',
-                    'examType',
-                    'term',
-                    'schoolYear',
-                    'marks.student'
-                ])->findOrFail($evaluationId);
-            }
-            // Si aucun ID n'est fourni, rediriger avec erreur
-            else {
+            // 1. Vérifier que l'évaluation existe
+            if (!$evaluation || !$evaluation->exists) {
+                Log::warning('Évaluation invalide: ID manquant ou null');
                 return redirect()->route('admin.evaluations.index')
-                    ->with('error', "ID d'évaluation manquant ou invalide.");
+                    ->with('error', 'L\'évaluation spécifiée n\'existe pas.');
             }
 
-            // Vérifications de sécurité
+            // 2. Charger les relations
+            $evaluation->load([
+                'class' => function($query) {
+                    $query->with(['students' => function($q) {
+                        $q->orderBy('first_name')->orderBy('last_name');
+                    }]);
+                },
+                'subject',
+                'examType',
+                'term',
+                'schoolYear',
+            ]);
+
+            // 3. Vérifier la classe
             if (!$evaluation->class) {
-                return redirect()->route('admin.evaluations.index')
-                    ->with('error', "Classe associée à l'évaluation introuvable.");
-            }
-
-            if (!$evaluation->class->students || $evaluation->class->students->isEmpty()) {
+                Log::error('Classe manquante pour évaluation ID: ' . $evaluation->id);
                 return redirect()->route('admin.evaluations.show', $evaluation)
-                    ->with('error', 'Aucun étudiant trouvé dans cette classe.');
+                    ->with('error', 'La classe associée à cette évaluation est introuvable.');
             }
 
-            // Vérifier les permissions pour les enseignants
-            $user = $request->user();
-            if ($user->isTeacher() || $user->isTitularTeacher()) {
-                $isAssigned = \App\Models\TeacherAssignment::where('teacher_id', $user->id)
-                    ->where('class_id', $evaluation->class_id)
-                    ->where('subject_id', $evaluation->subject_id)
-                    ->exists();
+            // 4. Vérifier les permissions
+            $this->checkTeacherPermissions($evaluation);
 
-                if (!$isAssigned) {
-                    abort(403, 'Vous n\'êtes pas assigné à cette évaluation.');
-                }
-            }
-
+            // 5. Récupérer les élèves
             $students = $evaluation->class->students;
-            $existingMarks = $evaluation->marks->keyBy('student_id');
+
+            if ($students->isEmpty()) {
+                Log::warning('Aucun élève dans la classe ' . $evaluation->class->id);
+                return redirect()->route('admin.evaluations.show', $evaluation)
+                    ->with('warning', 'Aucun élève trouvé dans cette classe.');
+            }
+
+            // 6. Charger les notes existantes
+            $existingMarks = $evaluation->marks()
+                ->with('student')
+                ->get()
+                ->keyBy('student_id');
+
+            Log::info('Formulaire de saisie des notes chargé', [
+                'evaluation_id' => $evaluation->id,
+                'students_count' => $students->count(),
+                'marks_count' => $existingMarks->count(),
+                'user_id' => Auth::id(),
+            ]);
 
             return view('marks.create', compact('evaluation', 'students', 'existingMarks'));
 
+        } catch (\Illuminate\Auth\Access\AuthorizationException $e) {
+            Log::warning('Accès non autorisé - MarkController::create', [
+                'user_id' => Auth::id(),
+                'evaluation_id' => $evaluation->id ?? null,
+                'error' => $e->getMessage()
+            ]);
+            return redirect()->route('admin.evaluations.index')
+                ->with('error', 'Vous n\'êtes pas autorisé à accéder à cette évaluation.');
+
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            Log::error('Évaluation non trouvée - MarkController::create');
             return redirect()->route('admin.evaluations.index')
-                ->with('error', 'Évaluation non trouvée.');
-        } catch (\Exception $e) {
-            \Log::error('Erreur lors du chargement de la saisie des notes: ' . $e->getMessage());
+                ->with('error', 'L\'évaluation spécifiée n\'existe pas.');
+
+        } catch (\Throwable $e) {
+            Log::error('Erreur dans MarkController::create', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
             return redirect()->route('admin.evaluations.index')
-                ->with('error', 'Erreur lors du chargement de l\'évaluation: ' . $e->getMessage());
+                ->with('error', 'Une erreur est survenue lors du chargement du formulaire de saisie des notes.');
         }
     }
 
-    public function store(Request $request)
+    /**
+     * Enregistrer les notes
+     */
+    public function store(Request $request, Evaluation $evaluation)
     {
         $this->authorize('create-marks');
 
-        $evaluationId = $request->input('evaluation_id');
+        try {
+            // 1. Valider l'évaluation
+            if (!$evaluation || !$evaluation->exists) {
+                return redirect()->route('admin.evaluations.index')
+                    ->with('error', 'L\'évaluation n\'existe pas.');
+            }
 
-        if (!$evaluationId) {
-            return redirect()->back()->with('error', 'Évaluation non spécifiée.')->withInput();
+            // 2. Charger les relations
+            $evaluation->load(['class', 'subject', 'term', 'schoolYear']);
+
+            // 3. Vérifier les permissions
+            $this->checkTeacherPermissions($evaluation);
+
+            // 4. Valider les données
+            $validated = $request->validate([
+                'marks' => 'required|array',
+                'marks.*.student_id' => 'required|exists:students,id',
+                'marks.*.marks' => 'nullable|numeric|min:0|max:' . ($evaluation->max_marks ?? 20),
+                'marks.*.is_absent' => 'boolean',
+                'marks.*.comment' => 'nullable|string|max:500',
+            ]);
+
+            // 5. Enregistrer les notes
+            $result = $this->saveMarksData($validated, $evaluation);
+
+            $this->logActivity(
+                'create_marks',
+                'Mark',
+                $evaluation->id,
+                "Saisie de {$result['processed']} note(s) pour {$evaluation->subject->name} - {$evaluation->class->name}"
+            );
+
+            $message = "✓ Notes enregistrées avec succès! ";
+            $message .= "{$result['processed']} note(s) saisie(s), ";
+            $message .= "{$result['absent']} absent(s).";
+
+            return redirect()->route('admin.evaluations.show', $evaluation)
+                ->with('success', $message);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::warning('Validation échouée - MarkController::store', $e->errors());
+            return redirect()->back()
+                ->withErrors($e->errors())
+                ->withInput()
+                ->with('error', 'Veuillez vérifier les données saisies.');
+
+        } catch (\Illuminate\Auth\Access\AuthorizationException $e) {
+            Log::warning('Accès non autorisé - MarkController::store');
+            return redirect()->route('admin.evaluations.index')
+                ->with('error', 'Vous n\'êtes pas autorisé à effectuer cette action.');
+
+        } catch (\Throwable $e) {
+            Log::error('Erreur lors de l\'enregistrement des notes', [
+                'message' => $e->getMessage(),
+                'evaluation_id' => $evaluation->id ?? null,
+                'user_id' => Auth::id(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return redirect()->back()
+                ->with('error', 'Une erreur est survenue lors de l\'enregistrement.')
+                ->withInput();
         }
+    }
 
-        $evaluation = Evaluation::with(['class', 'subject', 'term', 'schoolYear'])->find($evaluationId);
-
-        if (!$evaluation) {
-            return redirect()->back()->with('error', 'Évaluation non trouvée.')->withInput();
-        }
-
-        // Valider les données
-        $validated = $request->validate([
-            'marks' => 'required|array',
-            'marks.*.student_id' => 'required|exists:students,id',
-            'marks.*.mark' => 'nullable|numeric|min:0|max:' . ($evaluation->max_marks ?? 20),
-            'marks.*.is_absent' => 'boolean',
-            'marks.*.comment' => 'nullable|string|max:500',
-        ]);
+    /**
+     * Éditer une note
+     */
+    public function edit(Mark $mark)
+    {
+        $this->authorize('edit-marks');
 
         try {
-            DB::beginTransaction();
+            $mark->load(['evaluation', 'student.user', 'subject']);
 
-            $processedCount = 0;
-            $absentCount = 0;
+            $this->checkTeacherPermissions($mark->evaluation);
 
+            return view('marks.edit', compact('mark'));
+
+        } catch (\Throwable $e) {
+            Log::error('Erreur dans MarkController::edit', [
+                'message' => $e->getMessage()
+            ]);
+            return redirect()->back()
+                ->with('error', 'Une erreur est survenue.');
+        }
+    }
+
+    /**
+     * Mettre à jour une note
+     */
+    public function update(Request $request, Mark $mark)
+    {
+        $this->authorize('edit-marks');
+
+        try {
+            $this->checkTeacherPermissions($mark->evaluation);
+
+            $validated = $request->validate([
+                'marks' => 'nullable|numeric|min:0|max:' . ($mark->evaluation->max_marks ?? 20),
+                'is_absent' => 'boolean',
+                'comment' => 'nullable|string|max:500',
+            ]);
+
+            $oldValues = $mark->only(['marks', 'is_absent', 'comment']);
+
+            if ($request->boolean('is_absent')) {
+                $validated['marks'] = 0;
+                $validated['comment'] = $validated['comment'] ?? 'Absent';
+            }
+
+            $mark->update($validated);
+
+            $this->calculationService->calculateAllSubjectAverages(
+                $mark->evaluation->class,
+                $mark->evaluation->term,
+                $mark->evaluation->schoolYear
+            );
+
+            $this->logActivity('update_mark', 'Mark', $mark->id, 'Note mise à jour', $oldValues, $validated);
+
+            return redirect()->route('admin.evaluations.show', $mark->evaluation)
+                ->with('success', 'Note mise à jour avec succès.');
+
+        } catch (\Throwable $e) {
+            Log::error('Erreur dans MarkController::update', [
+                'message' => $e->getMessage()
+            ]);
+            return redirect()->back()
+                ->with('error', 'Une erreur est survenue.')
+                ->withInput();
+        }
+    }
+
+    /**
+     * Supprimer une note
+     */
+    public function destroy(Mark $mark)
+    {
+        $this->authorize('delete-marks');
+
+        try {
+            $this->checkTeacherPermissions($mark->evaluation);
+
+            $evaluation = $mark->evaluation;
+            $mark->delete();
+
+            $this->calculationService->calculateAllSubjectAverages(
+                $evaluation->class,
+                $evaluation->term,
+                $evaluation->schoolYear
+            );
+
+            $this->logActivity('delete_mark', 'Mark', null, 'Note supprimée');
+
+            return redirect()->route('admin.evaluations.show', $evaluation)
+                ->with('success', 'Note supprimée avec succès.');
+
+        } catch (\Throwable $e) {
+            Log::error('Erreur dans MarkController::destroy', [
+                'message' => $e->getMessage()
+            ]);
+            return redirect()->back()
+                ->with('error', 'Une erreur est survenue.');
+        }
+    }
+
+    // ========== MÉTHODES UTILITAIRES ==========
+
+    /**
+     * Vérifier les permissions
+     */
+    private function checkTeacherPermissions(Evaluation $evaluation)
+    {
+        $user = Auth::user();
+
+        // Les administrateurs ont accès
+        if ($user->hasRole('administrateur')) {
+            return;
+        }
+
+        // Les enseignants doivent être assignés
+        if ($user->hasRole(['enseignant', 'enseignant titulaire'])) {
+            $isAssigned = \App\Models\TeacherAssignment::where('teacher_id', $user->id)
+                ->where('class_id', $evaluation->class_id)
+                ->where('subject_id', $evaluation->subject_id)
+                ->exists();
+
+            if (!$isAssigned) {
+                throw new \Illuminate\Auth\Access\AuthorizationException(
+                    'Vous n\'êtes pas assigné à cette classe/matière.'
+                );
+            }
+        }
+    }
+
+    /**
+     * Enregistrer les notes
+     */
+    private function saveMarksData(array $validated, Evaluation $evaluation)
+    {
+        $processedCount = 0;
+        $absentCount = 0;
+
+        DB::beginTransaction();
+
+        try {
             foreach ($validated['marks'] as $studentData) {
                 $studentId = $studentData['student_id'];
-                $markValue = $studentData['mark'] ?? null;
+                $markValue = $studentData['marks'] ?? null;
                 $isAbsent = $studentData['is_absent'] ?? false;
                 $comment = $studentData['comment'] ?? null;
 
                 if ($isAbsent) {
-                    // Marquer comme absent
                     Mark::updateOrCreate(
                         [
                             'student_id' => $studentId,
@@ -146,7 +350,6 @@ class MarkController extends Controller
                     $absentCount++;
 
                 } elseif ($markValue !== null && $markValue !== '') {
-                    // Enregistrer la note
                     Mark::updateOrCreate(
                         [
                             'student_id' => $studentId,
@@ -163,232 +366,47 @@ class MarkController extends Controller
                         ]
                     );
                     $processedCount++;
-
-                } else {
-                    // Aucune donnée - supprimer si existe
-                    Mark::where('student_id', $studentId)
-                        ->where('evaluation_id', $evaluation->id)
-                        ->delete();
                 }
             }
 
-            DB::commit();
-
-            $message = "Notes enregistrées avec succès! ";
-            $message .= "{$processedCount} note(s) saisie(s), ";
-            $message .= "{$absentCount} absent(s) marqué(s).";
-
-            return redirect()->route('admin.evaluations.show', $evaluation)
-                ->with('success', $message);
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            \Log::error('Erreur lors de l\'enregistrement des notes: ' . $e->getMessage());
-
-            return redirect()->back()
-                ->with('error', 'Erreur lors de l\'enregistrement: ' . $e->getMessage())
-                ->withInput();
-        }
-    }
-
-    public function edit(Mark $mark)
-    {
-        $this->authorize('edit-marks');
-
-        // Vérifier les permissions pour les enseignants
-        $user = request()->user();
-        if ($user->isTeacher() || $user->isTitularTeacher()) {
-            $isAssigned = \App\Models\TeacherAssignment::where('teacher_id', $user->id)
-                ->where('class_id', $mark->class_id)
-                ->where('subject_id', $mark->subject_id)
-                ->exists();
-
-            if (!$isAssigned) {
-                abort(403, 'Vous n\'êtes pas assigné à cette note.');
-            }
-        }
-
-        $mark->load(['evaluation', 'student', 'subject']);
-
-        return view('marks.edit', compact('mark'));
-    }
-
-    public function update(Request $request, Mark $mark)
-    {
-        $this->authorize('edit-marks');
-
-        // Vérifier les permissions pour les enseignants
-        $user = $request->user();
-        if ($user->isTeacher() || $user->isTitularTeacher()) {
-            $isAssigned = \App\Models\TeacherAssignment::where('teacher_id', $user->id)
-                ->where('class_id', $mark->class_id)
-                ->where('subject_id', $mark->subject_id)
-                ->exists();
-
-            if (!$isAssigned) {
-                abort(403, 'Vous n\'êtes pas assigné à cette note.');
-            }
-        }
-
-        $validated = $request->validate([
-            'marks' => 'required_if:is_absent,0|nullable|numeric|min:0|max:' . $mark->evaluation->max_marks,
-            'is_absent' => 'boolean',
-            'comment' => 'nullable|string|max:500',
-        ]);
-
-        if ($validated['is_absent'] ?? false) {
-            $validated['marks'] = 0;
-            $validated['comment'] = $validated['comment'] ?? 'Absent';
-        }
-
-        $mark->update($validated);
-
-        // Recalculer les moyennes
-        $this->calculationService->calculateAllSubjectAverages(
-            $mark->class,
-            $mark->term,
-            $mark->schoolYear
-        );
-
-        return redirect()->route('admin.evaluations.show', $mark->evaluation)
-            ->with('success', 'Note mise à jour avec succès.');
-    }
-
-    public function destroy(Mark $mark)
-    {
-        $this->authorize('delete-marks');
-
-        // Vérifier les permissions pour les enseignants
-        $user = request()->user();
-        if ($user->isTeacher() || $user->isTitularTeacher()) {
-            $isAssigned = \App\Models\TeacherAssignment::where('teacher_id', $user->id)
-                ->where('class_id', $mark->class_id)
-                ->where('subject_id', $mark->subject_id)
-                ->exists();
-
-            if (!$isAssigned) {
-                abort(403, 'Vous n\'êtes pas assigné à cette note.');
-            }
-        }
-
-        $evaluation = $mark->evaluation;
-        $mark->delete();
-
-        // Recalculer les moyennes
-        $this->calculationService->calculateAllSubjectAverages(
-            $evaluation->class,
-            $evaluation->term,
-            $evaluation->schoolYear
-        );
-
-        return redirect()->route('admin.evaluations.show', $evaluation)
-            ->with('success', 'Note supprimée avec succès.');
-    }
-
-    // Méthodes spécifiques pour les enseignants
-    public function teacherCreate(Evaluation $evaluation)
-    {
-        $user = request()->user();
-
-        // Vérifier que l'enseignant est assigné à cette évaluation
-        $isAssigned = \App\Models\TeacherAssignment::where('teacher_id', $user->id)
-            ->where('class_id', $evaluation->class_id)
-            ->where('subject_id', $evaluation->subject_id)
-            ->exists();
-
-        if (!$isAssigned) {
-            abort(403, 'Vous n\'êtes pas assigné à cette évaluation.');
-        }
-
-        $evaluation->load(['class.students', 'subject']);
-        $students = $evaluation->class->students;
-        $existingMarks = $evaluation->marks->keyBy('student_id');
-
-        return view('marks.teacher-create', compact('evaluation', 'students', 'existingMarks'));
-    }
-
-    public function teacherStore(Request $request, Evaluation $evaluation)
-    {
-        return $this->store($request);
-    }
-
-    public function teacherEdit(Mark $mark)
-    {
-        $user = request()->user();
-
-        // Vérifier que l'enseignant est assigné à cette note
-        $isAssigned = \App\Models\TeacherAssignment::where('teacher_id', $user->id)
-            ->where('class_id', $mark->class_id)
-            ->where('subject_id', $mark->subject_id)
-            ->exists();
-
-        if (!$isAssigned) {
-            abort(403, 'Vous n\'êtes pas assigné à cette note.');
-        }
-
-        $mark->load(['evaluation', 'student', 'subject']);
-
-        return view('marks.teacher-edit', compact('mark'));
-    }
-
-    public function teacherUpdate(Request $request, Mark $mark)
-    {
-        return $this->update($request, $mark);
-    }
-
-    public function bulkUpdate(Request $request, Evaluation $evaluation)
-    {
-        $this->authorize('edit-marks');
-
-        // Vérifier les permissions pour les enseignants
-        $user = $request->user();
-        if ($user->isTeacher() || $user->isTitularTeacher()) {
-            $isAssigned = \App\Models\TeacherAssignment::where('teacher_id', $user->id)
-                ->where('class_id', $evaluation->class_id)
-                ->where('subject_id', $evaluation->subject_id)
-                ->exists();
-
-            if (!$isAssigned) {
-                abort(403, 'Vous n\'êtes pas assigné à cette évaluation.');
-            }
-        }
-
-        $validated = $request->validate([
-            'marks' => 'required|array',
-            'marks.*.id' => 'required|exists:marks,id',
-            'marks.*.marks' => 'nullable|numeric|min:0|max:' . $evaluation->max_marks,
-            'marks.*.is_absent' => 'boolean',
-        ]);
-
-        DB::transaction(function () use ($validated, $evaluation) {
-            foreach ($validated['marks'] as $markData) {
-                $mark = Mark::find($markData['id']);
-
-                if ($mark && $mark->evaluation_id === $evaluation->id) {
-                    if ($markData['is_absent'] ?? false) {
-                        $mark->update([
-                            'marks' => 0,
-                            'is_absent' => true,
-                            'comment' => 'Absent',
-                        ]);
-                    } else {
-                        $mark->update([
-                            'marks' => $markData['marks'],
-                            'is_absent' => false,
-                            'comment' => null,
-                        ]);
-                    }
-                }
-            }
-
-            // Recalculer les moyennes
             $this->calculationService->calculateAllSubjectAverages(
                 $evaluation->class,
                 $evaluation->term,
                 $evaluation->schoolYear
             );
-        });
 
-        return response()->json(['success' => true, 'message' => 'Notes mises à jour avec succès.']);
+            DB::commit();
+
+            return [
+                'processed' => $processedCount,
+                'absent' => $absentCount
+            ];
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            throw $e;
+        }
+    }
+
+    /**
+     * Enregistrer une activité
+     */
+    private function logActivity($action, $model, $modelId, $description, $oldValues = null, $newValues = null)
+    {
+        try {
+            ActivityLog::create([
+                'user_id' => Auth::id(),
+                'action' => $action,
+                'model' => $model,
+                'model_id' => $modelId,
+                'description' => $description,
+                'ip_address' => request()->ip(),
+                'user_agent' => request()->userAgent(),
+                'old_values' => $oldValues,
+                'new_values' => $newValues,
+            ]);
+        } catch (\Exception $e) {
+            Log::warning('Erreur lors du log activité: ' . $e->getMessage());
+        }
     }
 }

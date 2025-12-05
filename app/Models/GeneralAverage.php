@@ -11,7 +11,7 @@ class GeneralAverage extends Model
 
     protected $fillable = [
         'student_id',
-        'class_id',
+        'classe_id',
         'term_id',
         'school_year_id',
         'average',
@@ -32,7 +32,7 @@ class GeneralAverage extends Model
 
     public function class()
     {
-        return $this->belongsTo(Classe::class);
+        return $this->belongsTo(Classe::class, 'classe_id');
     }
 
     public function term()
@@ -50,11 +50,11 @@ class GeneralAverage extends Model
     {
         if ($value) return $value;
 
-        if ($this->average >= 16) return 'Excellent';
-        if ($this->average >= 14) return 'Très bien';
-        if ($this->average >= 12) return 'Bien';
-        if ($this->average >= 10) return 'Assez bien';
-        if ($this->average >= 8) return 'Passable';
+        if ($this->average >= 18) return 'Excellent';
+        if ($this->average >= 16) return 'Très bien';
+        if ($this->average >= 14) return 'Bien';
+        if ($this->average >= 12) return 'Assez bien';
+        if ($this->average >= 10) return 'Passable';
         return 'Insuffisant';
     }
 }

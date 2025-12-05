@@ -16,7 +16,7 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\AcademicController;
 use App\Http\Controllers\ProfileController;
-
+use App\Http\Controllers\BulletinController;
 use App\Http\Middleware\CheckUserActive;
 use App\Http\Middleware\CheckRole;
 
@@ -91,16 +91,28 @@ Route::middleware(['auth', CheckUserActive::class])->group(function () {
     Route::post('/students/import', [StudentController::class, 'import'])->name('students.import');
     Route::get('/students/export/template', [StudentController::class, 'exportTemplate'])->name('students.export-template');
 
+    Route::post('/students/{student}/generate-bulletin-simple', [StudentController::class, 'generateBulletinSimple'])
+            ->name('students.generate-bulletin-simple');
+        
+    Route::get('/students/{student}/bulletin-form', [StudentController::class, 'showBulletinForm'])->name('students.bulletin-form');
+    Route::post('/students/{student}/generate-bulletin', [StudentController::class, 'generateBulletin'])->name('students.generate-bulletin');
     // Archives et restauration
     Route::get('/archives/students', [StudentController::class, 'archives'])->name('archives.students');
     Route::post('/archives/students/{id}/restore', [StudentController::class, 'restore'])->name('archives.students.restore');
-
+    Route::post('/{student}/generate-bulletin', [StudentController::class, 'generateBulletin'])
+        ->name('generate-bulletin');
+        
+    // Route simple pour générer bulletin
+    Route::get('/{student}/generate-bulletin-simple', [StudentController::class, 'generateBulletinSimple'])
+        ->name('generate-bulletin-simple');
         // Gestion des classes
-        Route::resource('classes', ClasseController::class);
+        Route::resource('classes', ClasseController::class)->except(['show']);
+        Route::get('/classes/{classe}', [ClasseController::class, 'show'])->name('classes.show');
         Route::post('/classes/{classe}/assign-subjects', [ClasseController::class, 'assignSubjects'])->name('classes.assign-subjects');
         Route::post('/classes/{classe}/assign-teacher', [ClasseController::class, 'assignTeacher'])->name('classes.assign-teacher');
         Route::post('classes', [ClasseController::class, 'store'])->name('classes.store');
         Route::get('classes/create', [ClasseController::class, 'create'])->name('classes.create');
+        Route::get('/classes/{classe}/statistics', [ClasseController::class, 'getStatistics'])->name('classes.statistics');
 
         // Gestion des matières
         Route::resource('subjects', SubjectController::class);
@@ -111,8 +123,11 @@ Route::middleware(['auth', CheckUserActive::class])->group(function () {
         Route::post('evaluations', [EvaluationController::class, 'store'])->name('evaluations.store');
 
         // Gestion des notes
-        Route::resource('marks', MarkController::class)->only(['create', 'edit', 'update', 'store', 'destroy']);
-        Route::post('/evaluations/{evaluation}/marks/bulk-update', [MarkController::class, 'bulkUpdate'])->name('marks.bulk-update');
+        // Route::resource('marks', MarkController::class)->only(['create', 'edit', 'update', 'store', 'destroy']);
+        // Route::post('/evaluations/{evaluation}/marks/bulk-update', [MarkController::class, 'bulkUpdate'])->name('marks.bulk-update');
+        Route::resource('marks', MarkController::class)->only(['edit', 'update', 'destroy']);
+        Route::get('/evaluations/{evaluation}/marks', [MarkController::class, 'create'])->name('marks.create');
+        Route::post('/evaluations/{evaluation}/marks', [MarkController::class, 'store'])->name('marks.store');
 
         // Audit
         Route::get('/audit', [AuditController::class, 'index'])->name('audit.index');
@@ -120,19 +135,58 @@ Route::middleware(['auth', CheckUserActive::class])->group(function () {
         Route::get('/audit/user/{user}', [AuditController::class, 'userActivity'])->name('audit.user');
         Route::get('/audit/export', [AuditController::class, 'export'])->name('audit.export');
 
-        // Rapports administrateur
+        // Bulletins et Rapports
+        Route::prefix('bulletins')->name('bulletins.')->group(function () {
+            Route::post('/classes/{classe}/generate', [BulletinController::class, 'generateClassBulletins'])->name('generate-class');
+            Route::post('/classes/{classe}/pv', [BulletinController::class, 'generateClassPV'])->name('generate-pv');
+            Route::get('/{bulletin}', [BulletinController::class, 'show'])->name('show');
+            Route::get('/{bulletin}/pdf', [BulletinController::class, 'downloadPDF'])->name('download-pdf');
+            Route::post('/{bulletin}/archive', [BulletinController::class, 'archive'])->name('archive');
+            Route::get('/archived/list', [BulletinController::class, 'archived'])->name('archived');
+            Route::get('/student/{student}/generate', [BulletinController::class, 'generateStudentBulletinSimple'])
+                ->name('generate-student-simple');
+            Route::post('/student/{student}/generate', [BulletinController::class, 'generateStudentBulletin'])
+                ->name('generate-student');
+            
+            Route::post('/students/{student}/generate-bulletin', [StudentController::class, 'generateBulletin'])
+                ->name('generate-bulletin');
+        });
+
+        
+
         Route::prefix('reports')->name('reports.')->group(function () {
             Route::get('/school', [ReportController::class, 'schoolReport'])->name('school');
             Route::get('/teachers', [ReportController::class, 'teachersReport'])->name('teachers');
             Route::get('/performance', [ReportController::class, 'performanceReport'])->name('performance');
             Route::get('/class/{classe}', [ReportController::class, 'classReport'])->name('class');
             Route::get('/archived-bulletins', [ReportController::class, 'archivedBulletins'])->name('archived-bulletins');
-
-            // Génération de documents
             Route::get('/bulletin/{student}', [ReportController::class, 'generateBulletin'])->name('bulletin');
-            Route::get('/class-bulletins/{classe}', [ReportController::class, 'generateClassBulletins'])->name('class-bulletins');
             Route::get('/pv/{evaluation}', [ReportController::class, 'generatePV'])->name('pv');
+            Route::get('/classes/{classe}/generate-pv', [BulletinController::class, 'generateClassReport'])
+                ->name('classes.generate-pv');
+
         });
+        // Rapports administrateur
+    //     Route::prefix('reports')->name('reports.')->group(function () {
+    //         Route::get('/school', [ReportController::class, 'schoolReport'])->name('school');
+    //         Route::get('/teachers', [ReportController::class, 'teachersReport'])->name('teachers');
+    //         Route::get('/performance', [ReportController::class, 'performanceReport'])->name('performance');
+    //         Route::get('/class/{classe}', [ReportController::class, 'classReport'])->name('class');
+    //         Route::get('/archived-bulletins', [ReportController::class, 'archivedBulletins'])->name('archived-bulletins');
+
+    //         // Génération de documents
+    //         Route::get('/bulletin/{student}', [ReportController::class, 'generateBulletin'])->name('bulletin');
+    //         Route::get('/class-bulletins/{classe}', [ReportController::class, 'generateClassBulletins'])->name('class-bulletins');
+    //         Route::get('/pv/{evaluation}', [ReportController::class, 'generatePV'])->name('pv');
+    //         Route::post('classes/{classe}/generate', [BulletinController::class, 'generateClassBulletins'])
+    //     ->name('generate-class');
+    // Route::post('classes/{classe}/pv', [BulletinController::class, 'generateClassPV'])
+    //     ->name('generate-pv');
+    // Route::get('{bulletin}', [BulletinController::class, 'show'])->name('show');
+    // Route::get('{bulletin}/pdf', [BulletinController::class, 'downloadPDF'])->name('download-pdf');
+    // Route::post('{bulletin}/archive', [BulletinController::class, 'archive'])->name('archive');
+    // Route::get('archived/list', [BulletinController::class, 'archived'])->name('archived');
+    //     });
 
         // Paramètres
         Route::get('/settings', [SettingController::class, 'index'])->name('settings');
@@ -159,13 +213,15 @@ Route::middleware(['auth', CheckUserActive::class])->group(function () {
             Route::get('/terms/{term}/edit', [AcademicController::class, 'editTerm'])->name('terms.edit');
             Route::put('/terms/{term}', [AcademicController::class, 'updateTerm'])->name('terms.update');
             Route::delete('/terms/{term}', [AcademicController::class, 'destroyTerm'])->name('terms.destroy');
+            Route::post('terms/{term}/archive', [AcademicController::class, 'archiveTerm'])->name('terms.archive');
+            Route::post('terms/{term}/restore', [AcademicController::class, 'restoreTerm'])->name('terms.restore');
         });
     });
 
     // Routes pour le directeur
     Route::middleware([CheckRole::class . ':directeur'])->prefix('director')->name('director.')->group(function () {
         // Tableau de bord directeur
-        Route::get('/dashboard', [DashboardController::class, 'director'])->name('dashboard');
+        Route::get('/dashboard', [DashboardController::class, 'directordashboard'])->name('dashboard');
 
         // Consultation des données
         Route::get('/classes', [ClasseController::class, 'index'])->name('classes');
@@ -204,7 +260,7 @@ Route::middleware(['auth', CheckUserActive::class])->group(function () {
     // Routes pour l'enseignant titulaire
     Route::middleware([CheckRole::class . ':enseignant titulaire'])->prefix('titular')->name('titular.')->group(function () {
         // Tableau de bord titulaire
-        Route::get('/dashboard', [DashboardController::class, 'titular'])->name('dashboard');
+        Route::get('/dashboard', [DashboardController::class, 'titulardashboard'])->name('dashboard');
 
         // Gestion de la classe
         Route::get('/my-class', [ClasseController::class, 'myClass'])->name('my-class');
@@ -239,7 +295,7 @@ Route::middleware(['auth', CheckUserActive::class])->group(function () {
     // Routes pour l'enseignant
     Route::middleware([CheckRole::class . ':enseignant'])->prefix('teacher')->name('teacher.')->group(function () {
         // Tableau de bord enseignant
-        Route::get('/dashboard', [DashboardController::class, 'teacher'])->name('dashboard');
+        Route::get('/dashboard', [DashboardController::class, 'teacherdashboard'])->name('dashboard');
 
         // Mes matières et classes
         Route::get('/my-subjects', [TeacherController::class, 'mySubjects'])->name('my-subjects');
@@ -271,7 +327,7 @@ Route::middleware(['auth', CheckUserActive::class])->group(function () {
     // Routes pour le secrétaire
     Route::middleware([CheckRole::class . ':secretaire'])->prefix('secretary')->name('secretary.')->group(function () {
         // Tableau de bord secrétaire
-        Route::get('/dashboard', [DashboardController::class, 'secretary'])->name('dashboard');
+        Route::get('/dashboard', [DashboardController::class, 'secretarydashboard'])->name('dashboard');
 
         // Gestion administrative des élèves
         Route::resource('students', StudentController::class);

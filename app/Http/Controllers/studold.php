@@ -11,22 +11,22 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 
+
 class StudentController extends Controller
 {
-    protected $calculationService;
-
     public function __construct(MarkCalculationService $calculationService)
     {
         $this->middleware('auth');
         $this->calculationService = $calculationService;
     }
+    // public function __construct()
+    // {
+    //     $this->middleware('auth');
+    // }
 
-    /**
-     * Liste des élèves (avec filtres simples)
-     */
     public function index(Request $request)
     {
-        $query = Student::with(['classe', 'schoolYear']);
+        $query = Student::with(['class', 'schoolYear']);
 
         // Filtres
         if ($request->filled('class_id')) {
@@ -43,31 +43,23 @@ class StudentController extends Controller
         }
 
         $students = $query->orderBy('last_name')->paginate(25);
-
-        // Charger classes et année courante
         $classes = Classe::active()->get();
-        $currentSchoolYear = SchoolYear::current() ? SchoolYear::current()->first() : SchoolYear::first();
+        $currentSchoolYear = SchoolYear::current();
 
         return view('students.index', compact('students', 'classes', 'currentSchoolYear'));
     }
 
-    /**
-     * Formulaire création élève
-     */
     public function create()
     {
         $this->authorize('create-students');
 
         $classes = Classe::active()->get();
         $schoolYears = SchoolYear::all();
-        $currentSchoolYear = SchoolYear::current() ? SchoolYear::current()->first() : SchoolYear::first();
+        $currentSchoolYear = SchoolYear::current();
 
         return view('students.create', compact('classes', 'schoolYears', 'currentSchoolYear'));
     }
 
-    /**
-     * Enregistrer un nouvel élève
-     */
     public function store(Request $request)
     {
         $this->authorize('create-students');
@@ -83,7 +75,7 @@ class StudentController extends Controller
             'photo' => 'nullable|image|max:2048',
         ]);
 
-        // Générer le matricule (méthode statique dans le modèle Student)
+        // Générer le matricule
         $validated['matricule'] = Student::generateMatricule();
 
         if ($request->hasFile('photo')) {
@@ -96,80 +88,65 @@ class StudentController extends Controller
             ->with('success', 'Élève créé avec succès.');
     }
 
-    /**
-     * Afficher les détails d'un élève
-     */
-    public function show(Student $student)
-    {
-        $this->authorize('view-students');
+   public function show(Student $student)
+{
+    $this->authorize('view-students');
 
-        try {
-            // Charger relations utiles. On préfère 'classe' (modèle Classe).
-            $student->load([
-                'classe',
-                'schoolYear',
-                'marks' => function($query) {
-                    $query->with(['evaluation' => function($q) {
-                        $q->with(['subject', 'examType']);
-                    }, 'subject'])
-                    ->orderBy('created_at', 'desc');
-                },
-                'averages' => function($query) {
-                    $query->with(['subject', 'term', 'schoolYear'])
-                          ->orderBy('term_id')
-                          ->orderBy('subject_id');
-                },
-                'generalAverages' => function($query) {
-                    $query->with(['term', 'schoolYear'])
-                          ->orderBy('term_id');
-                }
-            ]);
-
-            // Check class assignment
-            if (!$student->classe && !$student->class_id) {
-                $terms = Term::all();
-                $schoolYears = SchoolYear::all();
-                $currentTerm = Term::current() ? Term::current()->first() : Term::first();
-                $currentSchoolYear = SchoolYear::current() ? SchoolYear::current()->first() : SchoolYear::first();
-
-                return view('students.show', compact('student', 'terms', 'schoolYears', 'currentTerm', 'currentSchoolYear'))
-                    ->with('warning', 'Cet élève n\'est pas assigné à une classe.');
+    try {
+        // Load all necessary relationships with proper relationship names
+        $student->load([
+            'class', // Use 'class' not 'classe'
+            'schoolYear',
+            'marks' => function($query) {
+                $query->with(['evaluation' => function($q) {
+                    $q->with(['subject', 'examType']);
+                }, 'subject'])
+                ->orderBy('created_at', 'desc');
+            },
+            'averages' => function($query) {
+                $query->with(['subject', 'term', 'schoolYear'])
+                      ->orderBy('term_id')
+                      ->orderBy('subject_id');
+            },
+            'generalAverages' => function($query) {
+                $query->with(['term', 'schoolYear'])
+                      ->orderBy('term_id');
             }
+        ]);
 
-            // Calculer l'age si disponible
-            if ($student->birth_date) {
-                try {
-                    $student->age = $student->birth_date->age;
-                } catch (\Exception $e) {
-                    // ignore si la date n'est pas un Carbon
-                    $student->age = null;
-                }
-            }
-
-            // Charger données pour formulaire/modal
-            $terms = Term::all();
-            $schoolYears = SchoolYear::all();
-            $currentTerm = Term::current() ? Term::current()->first() : Term::first();
-            $currentSchoolYear = SchoolYear::current() ? SchoolYear::current()->first() : SchoolYear::first();
-
-            return view('students.show', compact(
-                'student',
-                'terms',
-                'schoolYears',
-                'currentTerm',
-                'currentSchoolYear'
-            ));
-
-        } catch (\Exception $e) {
-            Log::error('Erreur affichage étudiant: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
-            return redirect()->route('admin.students.index')
-                ->with('error', 'Erreur lors du chargement des détails de l\'élève. Détails: ' . $e->getMessage());
+        // Check if the student has a class
+        if (!$student->class) {
+            return view('students.show', compact('student', 'terms', 'schoolYears', 'currentTerm', 'currentSchoolYear'))
+                ->with('warning', 'Cet élève n\'est pas assigné à une classe.');
         }
-    }
 
-    /**
-     * Formulaire édition
-     */
+        // Calculate age if birth date is available
+        if ($student->birth_date) {
+            $student->age = $student->birth_date->age;
+        }
+
+        // Load additional data for the modal
+        $terms = Term::all();
+        $schoolYears = SchoolYear::all();
+        $currentTerm = Term::current()->first();
+        $currentSchoolYear = SchoolYear::current();
+
+        return view('students.show', compact(
+            'student',
+            'terms',
+            'schoolYears',
+            'currentTerm',
+            'currentSchoolYear'
+        ));
+
+    } catch (\Exception $e) {
+        Log::error('Erreur affichage étudiant: ' . $e->getMessage());
+        Log::error('Stack trace: ' . $e->getTraceAsString());
+        return redirect()->route('admin.students.index')
+            ->with('error', 'Erreur lors du chargement des détails de l\'élève. Détails: ' . $e->getMessage());
+    }
+}
+
     public function edit(Student $student)
     {
         $this->authorize('edit-students');
@@ -180,9 +157,6 @@ class StudentController extends Controller
         return view('students.edit', compact('student', 'classes', 'schoolYears'));
     }
 
-    /**
-     * Mettre à jour un élève
-     */
     public function update(Request $request, Student $student)
     {
         $this->authorize('edit-students');
@@ -200,6 +174,7 @@ class StudentController extends Controller
         ]);
 
         if ($request->hasFile('photo')) {
+            // Supprimer l'ancienne photo si elle existe
             if ($student->photo) {
                 \Storage::disk('public')->delete($student->photo);
             }
@@ -212,9 +187,6 @@ class StudentController extends Controller
             ->with('success', 'Élève mis à jour avec succès.');
     }
 
-    /**
-     * Supprimer un élève
-     */
     public function destroy(Student $student)
     {
         $this->authorize('delete-students');
@@ -225,15 +197,14 @@ class StudentController extends Controller
             ->with('success', 'Élève supprimé avec succès.');
     }
 
-    /**
-     * Préparer la génération de bulletin : redirection vers BulletinController
-     * (adapter le nom de route si nécessaire)
-     */
-    public function generateBulletin(Student $student, Request $request)
+  
+    
+   public function generateBulletin(Student $student, Request $request)
     {
         $this->authorize('generate-reports');
 
         try {
+            // Valider les paramètres
             $request->validate([
                 'term_id' => 'required|exists:terms,id',
                 'school_year_id' => 'required|exists:school_years,id',
@@ -244,49 +215,39 @@ class StudentController extends Controller
             $schoolYearId = $request->input('school_year_id');
             $bulletinType = $request->input('type', 'standard');
 
-            // Rediriger vers la route qui génère le bulletin (vérifier que la route existe)
-            return redirect()->route('admin.bulletins.generate-student', [
-                'student' => $student->id,
-                'term_id' => $termId,
-                'school_year_id' => $schoolYearId,
-                'type' => $bulletinType
-            ]);
+            // Rediriger vers le contrôleur BulletinController
+            // return redirect()->route('admin.bulletins.generate-student-simple', [
+            //     'student' => $student->id,
+            //     'term_id' => $termId,
+            //     'school_year_id' => $schoolYearId,
+            //     'type' => $bulletinType
+            // ]);
 
         } catch (\Exception $e) {
-            Log::error('Erreur redirection génération bulletin: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
+            Log::error('Erreur redirection génération bulletin: ' . $e->getMessage());
             return back()->with('error', 'Erreur: ' . $e->getMessage());
         }
     }
 
-    /**
-     * Liste des élèves de la classe dont l'utilisateur est titulaire
-     */
+    // Méthodes spécifiques pour les enseignants titulaires
     public function myClassStudents(Request $request)
     {
         $user = $request->user();
 
-        // On supporte différents schémas : user->class_id ou user->classe relation
-        $userClassId = $user->class_id ?? ($user->classe_id ?? null);
-
-        if (!$userClassId) {
+        if (!$user->class) {
             abort(403, 'Vous n\'êtes pas titulaire d\'une classe.');
         }
 
-        $students = Student::where('class_id', $userClassId)->with('generalAverages')->get();
+        $students = $user->class->students()->with('generalAverages')->get();
 
         return view('students.my-class', compact('students'));
     }
 
-    /**
-     * Afficher un élève de la classe du titulaire
-     */
     public function myClassStudentShow(Student $student, Request $request)
     {
         $user = $request->user();
 
-        $userClassId = $user->class_id ?? ($user->classe_id ?? null);
-
-        if ($student->class_id !== $userClassId) {
+        if ($student->class_id !== $user->class_id) {
             abort(403, 'Cet élève ne fait pas partie de votre classe.');
         }
 
@@ -295,24 +256,18 @@ class StudentController extends Controller
         return view('students.my-class-show', compact('student'));
     }
 
-    /**
-     * Archives (soft deleted)
-     */
     public function archives()
     {
         $this->authorize('view-students');
 
         $students = Student::onlyTrashed()
-            ->with(['classe', 'schoolYear'])
+            ->with(['class', 'schoolYear'])
             ->orderBy('deleted_at', 'desc')
             ->paginate(25);
 
         return view('students.archives', compact('students'));
     }
 
-    /**
-     * Restaurer un élève supprimé
-     */
     public function restore($id)
     {
         $this->authorize('edit-students');
@@ -324,9 +279,6 @@ class StudentController extends Controller
             ->with('success', 'Élève restauré avec succès.');
     }
 
-    /**
-     * Import CSV / Excel (placeholder)
-     */
     public function import(Request $request)
     {
         $this->authorize('create-students');
@@ -335,61 +287,43 @@ class StudentController extends Controller
             'file' => 'required|file|mimes:csv,xlsx,xls|max:2048'
         ]);
 
-        // Implémentation d'import à ajouter
+        // Logique d'importation à implémenter
         return redirect()->route('admin.students.index')
             ->with('success', 'Importation des élèves en cours...');
     }
 
-    /**
-     * Télécharger un template d'import (placeholder)
-     */
     public function exportTemplate()
     {
         $this->authorize('view-students');
 
-        $path = storage_path('templates/students_import_template.xlsx');
-        if (!file_exists($path)) {
-            return back()->with('error', 'Template introuvable.');
-        }
-
-        return response()->download($path);
+        // Logique d'export du template à implémenter
+        return response()->download(storage_path('templates/students_import_template.xlsx'));
     }
 
-    /**
-     * Formulaire pour générer un bulletin pour un élève
-     */
+
     public function showBulletinForm(Student $student)
-    {
-        $this->authorize('generate-reports');
-
-        // Méthode hasClass() peut exister ; sinon vérifier la propriété
-        if (method_exists($student, 'hasClass')) {
-            $hasClass = $student->hasClass();
-        } else {
-            $hasClass = (bool) $student->class_id || (bool) $student->classe_id;
-        }
-
-        if (!$hasClass) {
-            return back()->with('error', "Cet élève n'est pas assigné à une classe. Veuillez d'abord assigner une classe à cet élève.");
-        }
-
-        $terms = Term::all();
-        $schoolYears = SchoolYear::all();
-        $currentTerm = Term::current() ? Term::current()->first() : Term::first();
-        $currentSchoolYear = SchoolYear::current() ? SchoolYear::current()->first() : SchoolYear::first();
-
-        return view('students.bulletin-form', compact(
-            'student',
-            'terms',
-            'schoolYears',
-            'currentTerm',
-            'currentSchoolYear'
-        ));
+{
+    $this->authorize('generate-reports');
+    
+    // Vérifier que l'étudiant a une classe
+    if (!$student->hasClass()) {
+        return back()->with('error', "Cet élève n'est pas assigné à une classe. Veuillez d'abord assigner une classe à cet élève.");
     }
 
-    /**
-     * Génération simple de bulletin (PDF download) — wrapper sûr autour du service de bulletins
-     */
+    $terms = Term::all();
+    $schoolYears = SchoolYear::all();
+    $currentTerm = Term::current()->first();
+    $currentSchoolYear = SchoolYear::current();
+
+    return view('students.bulletin-form', compact(
+        'student',
+        'terms',
+        'schoolYears',
+        'currentTerm',
+        'currentSchoolYear'
+    ));
+}
+
     public function generateBulletinSimple(Student $student, Request $request)
     {
         $this->authorize('generate-reports');
@@ -398,15 +332,15 @@ class StudentController extends Controller
 
         try {
             Log::info("=== DÉBUT GÉNÉRATION BULLETIN SIMPLE ===");
-            $studentName = $student->full_name ?? trim(($student->first_name ?? '') . ' ' . ($student->last_name ?? ''));
-            Log::info("Étudiant: {$student->id}, Nom: {$studentName}");
+            Log::info("Étudiant: {$student->id}, Nom: {$student->full_name}");
 
             // Vérifier que l'étudiant a une classe
-            if (!$student->class_id && !$student->classe_id) {
+            if (!$student->class_id) {
                 Log::warning("Étudiant {$student->id} n'a pas de classe assignée");
                 return back()->with('error', "Cet élève n'est pas assigné à une classe.");
             }
 
+            // Valider les paramètres
             $request->validate([
                 'term_id' => 'required|exists:terms,id',
                 'school_year_id' => 'required|exists:school_years,id',
@@ -417,24 +351,23 @@ class StudentController extends Controller
             $schoolYearId = $request->input('school_year_id');
             $bulletinType = $request->input('type', 'standard');
 
-            $term = Term::findOrFail($termId);
-            $schoolYear = SchoolYear::findOrFail($schoolYearId);
+            $term = \App\Models\Term::findOrFail($termId);
+            $schoolYear = \App\Models\SchoolYear::findOrFail($schoolYearId);
             $schoolSettings = \App\Models\SchoolSetting::first();
 
-            // Récupérer la classe (préférence class_id)
-            $classeId = $student->class_id ?? $student->classe_id;
-            $classe = Classe::find($classeId);
+            // Récupérer la classe
+            $classe = \App\Models\Classe::find($student->class_id);
             if (!$classe) {
                 return back()->with('error', "La classe de l'élève n'existe plus.");
             }
 
             Log::info("Paramètres: Classe={$classe->name}, Trimestre={$term->name}, Année={$schoolYear->year}");
 
-            // Forcer le calcul des moyennes
+            // FORCER le calcul des moyennes
             Log::info("Calcul des moyennes...");
             $calculationResult = $this->calculationService->calculateAllSubjectAverages($classe, $term, $schoolYear);
-
-            if ($calculationResult === false) {
+            
+            if (!$calculationResult) {
                 Log::error("Échec calcul moyennes pour étudiant {$student->id}");
                 return back()->with('error', 'Impossible de calculer les moyennes. Vérifiez que les notes sont saisies.');
             }
@@ -442,7 +375,7 @@ class StudentController extends Controller
             // Calculer les moyennes générales
             $this->calculationService->calculateGeneralAverages($classe, $term, $schoolYear);
 
-            // Résultats étudiants
+            // Calculer les résultats
             Log::info("Calcul des résultats...");
             $results = $this->calculationService->calculateStudentResults(
                 $student->id,
@@ -451,35 +384,24 @@ class StudentController extends Controller
             );
 
             Log::info("Résultats obtenus", [
-                'moyenne' => $results['general_average'] ?? null,
-                'matieres' => count($results['subject_results'] ?? [])
+                'moyenne' => $results['general_average'],
+                'matieres' => count($results['subject_results'])
             ]);
 
+            // Vérifier les résultats
             if (empty($results['subject_results'])) {
                 Log::warning("Aucune matière trouvée pour l'étudiant {$student->id}");
                 return back()->with('error', 'Aucune donnée académique disponible. Vérifiez les notes.');
             }
 
-            // Statistiques de classe
+            // Calculer les statistiques de classe
             $classStats = $this->calculationService->calculateClassStatistics(
                 $classe->id,
                 $term->id,
                 $schoolYear->id
             );
 
-            if (empty($classStats) || !is_array($classStats)) {
-                $classStats = [
-                    'class_average' => 0,
-                    'total_students' => 0,
-                    'max_average' => 0,
-                    'min_average' => 0,
-                    'success_rate' => 0,
-                    'top_average' => 0,
-                    'bottom_average' => 0
-                ];
-            }
-
-            // Enregistrer bulletin sommaire
+            // Enregistrer le bulletin
             $bulletin = \App\Models\Bulletin::updateOrCreate(
                 [
                     'student_id' => $student->id,
@@ -487,7 +409,7 @@ class StudentController extends Controller
                     'term_id' => $term->id
                 ],
                 [
-                    'class_id' => $classe->id,
+                    'class_id' => $student->class_id,
                     'average' => $results['general_average'] ?? 0,
                     'rank' => $results['rank'] ?? 0,
                     'appreciation' => $results['appreciation'] ?? 'Non noté',
@@ -497,6 +419,7 @@ class StudentController extends Controller
                 ]
             );
 
+            // Préparer les données pour le PDF
             $data = [
                 'student' => $student,
                 'schoolYear' => $schoolYear,
@@ -509,10 +432,12 @@ class StudentController extends Controller
                 'examTypes' => \App\Models\ExamType::all()
             ];
 
+            // Sélectionner la vue
             $viewName = $bulletinType === 'apc' ? 'reports.bulletin-apc' : 'reports.bulletin-standard';
 
             Log::info("Génération PDF avec vue: {$viewName}");
 
+            // Générer le PDF avec options optimisées
             $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView($viewName, $data)
                 ->setPaper('a4', 'portrait')
                 ->setOptions([
@@ -533,32 +458,16 @@ class StudentController extends Controller
             $filename = "bulletin_{$student->matricule}_{$term->name}_{$schoolYear->year}.pdf";
 
             Log::info("=== BULLETIN GÉNÉRÉ AVEC SUCCÈS ===");
-
-            $content = $pdf->output(); // binaire
-
-// Nettoyer tous les buffers de sortie pour éviter les octets supplémentaires
-while (ob_get_level()) {
-    @ob_end_clean();
-}
-
-// Désactiver temporarement la compression de sortie (si activée)
-if (ini_get('zlib.output_compression')) {
-    @ini_set('zlib.output_compression', '0');
-}
-
-// Forcer en-têtes corrects et retourner la réponse binaire
-return response($content, 200, [
-    'Content-Type' => 'application/pdf',
-    'Content-Transfer-Encoding' => 'binary',
-    'Content-Disposition' => 'attachment; filename="' . $filename . '"',
-    'Content-Length' => (string) strlen($content),
-    'Cache-Control' => 'private, max-age=0, must-revalidate',
-    'Pragma' => 'public',
-]);
+            
+            return $pdf->download($filename);
 
         } catch (\Exception $e) {
-            Log::error('ERREUR GÉNÉRATION BULLETIN SIMPLE: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
+            Log::error('ERREUR GÉNÉRATION BULLETIN SIMPLE: ' . $e->getMessage());
+            Log::error('Stack trace: ' . $e->getTraceAsString());
+            
             return back()->with('error', 'Erreur lors de la génération: ' . $e->getMessage());
         }
     }
+
+
 }

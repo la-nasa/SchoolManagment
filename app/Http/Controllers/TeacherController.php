@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Models\Classe;
 use App\Models\Subject;
 use App\Models\TeacherAssignment;
+use App\Models\SchoolYear;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules;
@@ -101,7 +102,7 @@ class TeacherController extends Controller
             ]);
         }
 
-        return redirect()->route('teachers.index')
+        return redirect()->route('admin.teachers.index')
             ->with('success', "Enseignant créé avec succès. Matricule: {$teacher->matricule}, Mot de passe temporaire: {$temporaryPassword}");
     }
 
@@ -115,8 +116,21 @@ class TeacherController extends Controller
             'teacherAssignments.subject',
             'teacherAssignments.class',
             'assignedClasses',
-            'assignedSubjects'
+            'assignedSubjects',
+            'teacherAssignments.schoolYear',
+            'teacherAssignments' => function ($query) {
+                $currentSchoolYear = SchoolYear::current();
+                if ($currentSchoolYear) {
+                    $query->where('school_year_id', $currentSchoolYear->id);
+                }
+            }
         ]);
+
+         $assignments = $teacher->teacherAssignments()
+            ->with(['subject', 'class', 'schoolYear'])
+            ->get();
+
+        $currentSchoolYear = SchoolYear::current();
         // $teacher->load(['roles', 'class', 'teacherAssignments.subject', 'teacherAssignments.class']);
         // $teacher = Teacher::with([
         //     'class',
@@ -125,7 +139,7 @@ class TeacherController extends Controller
         // ])->where('user_id', $user->id)->firstOrFail();
 
 
-        return view('teachers.show', compact('teacher'));
+        return view('teachers.show', compact('teacher', 'assignments', 'currentSchoolYear'));
     }
 
     public function edit(User $user)
@@ -289,4 +303,71 @@ class TeacherController extends Controller
             ->with('success', 'Enseignant désactivé avec succès.');
     }
 
+
+     public function assignToClass(Request $request, User $teacher)
+    {
+        $this->authorize('edit-users');
+
+        $validated = $request->validate([
+            'class_id' => 'required|exists:classes,id',
+            'subject_id' => 'required|exists:subjects,id',
+            'is_titular' => 'boolean',
+        ]);
+
+        $currentSchoolYear = SchoolYear::current();
+
+        if (!$currentSchoolYear) {
+            return back()->with('error', 'Aucune année scolaire active.');
+        }
+
+        // Vérifier si l'affectation existe déjà
+        $existing = TeacherAssignment::where([
+            'teacher_id' => $teacher->id,
+            'class_id' => $validated['class_id'],
+            'subject_id' => $validated['subject_id'],
+            'school_year_id' => $currentSchoolYear->id,
+        ])->first();
+
+        if ($existing) {
+            return back()->with('warning', 'Cet enseignant est déjà assigné à cette classe/matière pour cette année scolaire.');
+        }
+
+        // Créer l'affectation
+        TeacherAssignment::create([
+            'teacher_id' => $teacher->id,
+            'subject_id' => $validated['subject_id'],
+            'class_id' => $validated['class_id'],
+            'school_year_id' => $currentSchoolYear->id,
+            'is_titular' => $validated['is_titular'] ?? false,
+        ]);
+
+        // Si c'est un enseignant titulaire, mettre à jour la classe
+        if ($validated['is_titular'] ?? false) {
+            $classe = Classe::find($validated['class_id']);
+            if ($classe) {
+                $classe->update(['teacher_id' => $teacher->id]);
+            }
+        }
+
+        return back()->with('success', 'Enseignant assigné avec succès à la classe.');
+    }
+
+    public function removeAssignment(TeacherAssignment $assignment)
+    {
+        $this->authorize('edit-users');
+
+        $teacher = $assignment->teacher;
+
+        // Si c'était un enseignant titulaire, le retirer de la classe
+        if ($assignment->is_titular) {
+            $classe = Classe::find($assignment->class_id);
+            if ($classe && $classe->teacher_id == $teacher->id) {
+                $classe->update(['teacher_id' => null]);
+            }
+        }
+
+        $assignment->delete();
+
+        return back()->with('success', 'Affectation retirée avec succès.');
+    }
 }

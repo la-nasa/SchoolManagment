@@ -8,9 +8,11 @@
 @endsection
 
 @section('page-actions')
+@can('create-classes')
 <a href="{{ route('admin.classes.create') }}" class="btn btn-primary">
     <i class="bi bi-plus-circle me-1"></i>Nouvelle classe
 </a>
+@endcan
 @endsection
 
 @section('content')
@@ -74,7 +76,7 @@
                         <th>Élèves</th>
                         <th>Titulaire</th>
                         <th>Statut</th>
-                        <th width="120">Actions</th>
+                        <th width="150">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -93,9 +95,9 @@
                         </td>
                         <td>
                             @if($class->teacher)
-                                <span class="text-muted">{{ $class->teacher->name }}</span>
+                                <span class="text-muted">{{ $class->teacher->name ?? $class->teacher->first_name . ' ' . $class->teacher->last_name }}</span>
                             @else
-                                <span class="text-muted">-</span>
+                                <span class="text-muted fst-italic">Non assigné</span>
                             @endif
                         </td>
                         <td>
@@ -108,13 +110,24 @@
                         <td>
                             <div class="btn-group btn-group-sm">
                                 <a href="{{ route('admin.classes.show', $class) }}"
-                                   class="btn btn-outline-primary" title="Voir">
+                                   class="btn btn-outline-primary" title="Voir détails">
                                     <i class="bi bi-eye"></i>
                                 </a>
+                                @can('edit-classes')
                                 <a href="{{ route('admin.classes.edit', $class) }}"
                                    class="btn btn-outline-secondary" title="Modifier">
                                     <i class="bi bi-pencil"></i>
                                 </a>
+                                @endcan
+
+                                <!-- Bouton Rapports -->
+                                <button type="button" class="btn btn-outline-success"
+                                        data-bs-toggle="modal" data-bs-target="#reportsModal{{ $class->id }}"
+                                        title="Générer rapports">
+                                    <i class="bi bi-file-earmark-pdf"></i>
+                                </button>
+
+                                @can('delete-classes')
                                 <form action="{{ route('admin.classes.destroy', $class) }}" method="POST"
                                       class="d-inline" onsubmit="return confirm('Êtes-vous sûr de vouloir supprimer cette classe ?')">
                                     @csrf
@@ -123,6 +136,7 @@
                                         <i class="bi bi-trash"></i>
                                     </button>
                                 </form>
+                                @endcan
                             </div>
                         </td>
                     </tr>
@@ -135,9 +149,11 @@
             <i class="bi bi-building display-1 text-muted"></i>
             <h4 class="text-muted mt-3">Aucune classe trouvée</h4>
             <p class="text-muted">Aucune classe ne correspond à vos critères de recherche.</p>
+            @can('create-classes')
             <a href="{{ route('admin.classes.create') }}" class="btn btn-primary">
                 <i class="bi bi-plus-circle me-1"></i>Créer la première classe
             </a>
+            @endcan
         </div>
         @endif
     </div>
@@ -153,4 +169,260 @@
     </div>
     @endif
 </div>
+
+<!-- Modals pour chaque classe (en dehors du tableau) -->
+@foreach($classes as $class)
+<!-- Modal Bulletins & PV pour chaque classe -->
+<div class="modal fade" id="reportsModal{{ $class->id }}" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">Générer Rapports - {{ $class->name }}</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="bulletinForm{{ $class->id }}">
+                    @csrf
+
+                    <div class="mb-3">
+                        <label for="term_id{{ $class->id }}" class="form-label">
+                            <strong>Trimestre <span class="text-danger">*</span></strong>
+                        </label>
+                        <select id="term_id{{ $class->id }}" name="term_id" class="form-select" required>
+                            <option value="">-- Sélectionner --</option>
+                            @foreach($terms as $term)
+                                <option value="{{ $term->id }}"
+                                    {{ ($currentTerm->id ?? null) == $term->id ? 'selected' : '' }}>
+                                    {{ $term->name }}
+                                    @if($term->start_date && $term->end_date)
+                                        ({{ $term->start_date->format('d/m/Y') }} - {{ $term->end_date->format('d/m/Y') }})
+                                    @endif
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="school_year_id{{ $class->id }}" class="form-label">
+                            <strong>Année Scolaire <span class="text-danger">*</span></strong>
+                        </label>
+                        <select id="school_year_id{{ $class->id }}" name="school_year_id" class="form-select" required>
+                            <option value="">-- Sélectionner --</option>
+                            @foreach($schoolYears as $year)
+                                <option value="{{ $year->id }}"
+                                    {{ ($currentSchoolYear->id ?? null) == $year->id ? 'selected' : '' }}>
+                                    {{ $year->year }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label"><strong>Type de Bulletin</strong></label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="type"
+                                   id="standardBulletin{{ $class->id }}" value="standard" checked>
+                            <label class="form-check-label" for="standardBulletin{{ $class->id }}">
+                                Bulletin Standard
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="type"
+                                   id="apcBulletin{{ $class->id }}" value="apc">
+                            <label class="form-check-label" for="apcBulletin{{ $class->id }}">
+                                Bulletin APC (Par Compétences)
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-info mb-0">
+                        <i class="bi bi-info-circle"></i>
+                        <strong>Important:</strong> Les moyennes seront recalculées automatiquement avant génération.
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    Fermer
+                </button>
+                <button type="button" class="btn btn-primary"
+                        onclick="submitBulletinForm('{{ $class->id }}')">
+                    <i class="bi bi-file-earmark-pdf"></i> Générer Bulletins
+                </button>
+                <button type="button" class="btn btn-warning"
+                        onclick="submitPVForm('{{ $class->id }}')">
+                    <i class="bi bi-list-check"></i> Générer PV
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+@endforeach
 @endsection
+
+@push('scripts')
+<script>
+function submitBulletinForm(classeId) {
+    const form = document.getElementById(`bulletinForm${classeId}`);
+    const termId = form.querySelector(`#term_id${classeId}`).value;
+    const schoolYearId = form.querySelector(`#school_year_id${classeId}`).value;
+    const bulletinType = form.querySelector(`input[name="type"]:checked`).value;
+
+    if (!termId || !schoolYearId) {
+        alert('Veuillez sélectionner un trimestre et une année scolaire');
+        return;
+    }
+
+    // Afficher un indicateur de chargement
+    const submitBtn = form.querySelector('.btn-primary');
+    const originalText = submitBtn.innerHTML;
+    submitBtn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i> Génération...';
+    submitBtn.disabled = true;
+
+    // Créer un formulaire temporaire pour soumettre
+    const tempForm = document.createElement('form');
+    tempForm.method = 'POST';
+    tempForm.action = '{{ route("admin.bulletins.generate-class", ":classe") }}'.replace(':classe', classeId);
+
+    const fields = {
+        '_token': '{{ csrf_token() }}',
+        'term_id': termId,
+        'school_year_id': schoolYearId,
+        'type': bulletinType
+    };
+
+    for (const [key, value] of Object.entries(fields)) {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = key;
+        input.value = value;
+        tempForm.appendChild(input);
+    }
+
+    document.body.appendChild(tempForm);
+    tempForm.submit();
+    document.body.removeChild(tempForm);
+
+    // Réactiver le bouton après un délai
+    setTimeout(() => {
+        submitBtn.innerHTML = originalText;
+        submitBtn.disabled = false;
+    }, 3000);
+
+    // Fermer le modal après soumission
+    const modal = bootstrap.Modal.getInstance(document.getElementById(`reportsModal${classeId}`));
+    if (modal) {
+        modal.hide();
+    }
+}
+
+function submitPVForm(classeId) {
+    const form = document.getElementById(`bulletinForm${classeId}`);
+    const termId = form.querySelector(`#term_id${classeId}`).value;
+    const schoolYearId = form.querySelector(`#school_year_id${classeId}`).value;
+
+    if (!termId || !schoolYearId) {
+        alert('Veuillez sélectionner un trimestre et une année scolaire');
+        return;
+    }
+
+    // Afficher un indicateur de chargement
+    const submitBtn = form.querySelector('.btn-warning');
+    const originalText = submitBtn.innerHTML;
+    submitBtn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i> Génération...';
+    submitBtn.disabled = true;
+
+    // Créer un formulaire temporaire pour soumettre
+    const tempForm = document.createElement('form');
+    tempForm.method = 'POST';
+    tempForm.action = '{{ route("admin.bulletins.generate-pv", ":classe") }}'.replace(':classe', classeId);
+
+    const fields = {
+        '_token': '{{ csrf_token() }}',
+        'term_id': termId,
+        'school_year_id': schoolYearId
+    };
+
+    for (const [key, value] of Object.entries(fields)) {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = key;
+        input.value = value;
+        tempForm.appendChild(input);
+    }
+
+    document.body.appendChild(tempForm);
+    tempForm.submit();
+    document.body.removeChild(tempForm);
+
+    // Réactiver le bouton après un délai
+    setTimeout(() => {
+        submitBtn.innerHTML = originalText;
+        submitBtn.disabled = false;
+    }, 3000);
+
+    // Fermer le modal après soumission
+    const modal = bootstrap.Modal.getInstance(document.getElementById(`reportsModal${classeId}`));
+    if (modal) {
+        modal.hide();
+    }
+}
+
+// Initialisation Select2 si utilisé
+document.addEventListener('DOMContentLoaded', function() {
+    // Si vous utilisez Select2 pour les selects
+    if (typeof $.fn.select2 !== 'undefined') {
+        $('#level').select2({
+            placeholder: 'Sélectionnez un niveau',
+            allowClear: true
+        });
+
+        // Initialiser les selects dans les modals
+        @foreach($classes as $class)
+        $('#term_id{{ $class->id }}, #school_year_id{{ $class->id }}').select2({
+            placeholder: 'Sélectionnez une option',
+            allowClear: true,
+            dropdownParent: $('#reportsModal{{ $class->id }}')
+        });
+        @endforeach
+    }
+});
+</script>
+@endpush
+
+@push('styles')
+<style>
+.btn-group-sm .btn {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+}
+
+.table td {
+    vertical-align: middle;
+}
+
+.modal-header {
+    border-bottom: 2px solid #198754;
+}
+
+.form-check-input:checked {
+    background-color: #198754;
+    border-color: #198754;
+}
+
+/* Style pour les modals */
+.modal-content {
+    border: none;
+    border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+}
+
+.modal-body {
+    padding: 1.5rem;
+}
+
+.select2-container {
+    width: 100% !important;
+}
+</style>
+@endpush
